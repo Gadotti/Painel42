@@ -13,6 +13,18 @@ if [ -n "$WS_ADDRESS" ]; then
         > /app/public/websocket-config.json
 fi
 
+# Cria o primeiro usuário admin se users.json ainda não existir
+if [ ! -f /app/configs/users.json ] && [ -n "$ADMIN_USERNAME" ] && [ -n "$ADMIN_PASSWORD" ]; then
+    mkdir -p /app/configs
+    node -e "
+const { hashPassword } = require('/app/src/auth');
+const { salt, hash } = hashPassword(process.env.ADMIN_PASSWORD);
+const users = [{ username: process.env.ADMIN_USERNAME, salt, hash, role: 'editor' }];
+require('fs').writeFileSync('/app/configs/users.json', JSON.stringify(users, null, 2));
+console.log('Usuário admin criado:', process.env.ADMIN_USERNAME);
+"
+fi
+
 # Inicializa cards-list.json no primeiro run
 [ -f /app/cards/cards-list.json ] || echo '[]' > /app/cards/cards-list.json
 

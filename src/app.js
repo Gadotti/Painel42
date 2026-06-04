@@ -224,6 +224,7 @@ function createApp(config = {}) {
   app.get('/api/views', (req, res) => {
     fs.readFile(VIEWS_PATH, 'utf8', (err, data) => {
       if (err) {
+        if (err.code === 'ENOENT') return res.json([]);
         return res.status(500).json({ error: 'Erro ao ler visões' });
       }
       try {
@@ -249,15 +250,16 @@ function createApp(config = {}) {
     }
 
     fs.readFile(VIEWS_PATH, 'utf8', (err, data) => {
-      if (err) {
-        return res.status(500).json({ error: 'Erro ao ler visões' });
-      }
-
       let views;
-      try {
-        views = JSON.parse(data);
-      } catch {
-        return res.status(500).json({ error: 'Erro ao interpretar visões' });
+      if (err) {
+        if (err.code !== 'ENOENT') return res.status(500).json({ error: 'Erro ao ler visões' });
+        views = [];
+      } else {
+        try {
+          views = JSON.parse(data);
+        } catch {
+          return res.status(500).json({ error: 'Erro ao interpretar visões' });
+        }
       }
 
       if (views.some(v => v.value === value)) {

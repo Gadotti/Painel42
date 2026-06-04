@@ -14,8 +14,11 @@ EXTRA_IGNORED_PATHS = {
     'tests',
     'jest.setup.js',
     'imgs',
-    '.github',       # CI/CD — não necessário no pacote de deploy
-    '.dockerignore', # usado apenas no build da imagem
+    '.github',            # CI/CD — não necessário no pacote de deploy
+    'Dockerfile',
+    'docker-compose.yml',
+    'docker-entrypoint.sh',
+    '.dockerignore',
 }
 
 # Files that should be renamed with -SAMPLE suffix in the zip

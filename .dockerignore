@@ -17,3 +17,7 @@ public/local-pages/
 public/logs/
 *.log
 CLAUDE.md
+Dockerfile
+docker-compose.yml
+jest.setup.js
+release.py

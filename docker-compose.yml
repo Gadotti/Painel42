@@ -25,6 +25,10 @@ services:
       - HTTP_PORT=3123        # porta interna HTTP do container
       - WS_ADDRESS=localhost  # altere para o IP do servidor se o acesso for de outra máquina
       # WS_PORT=8123          # descomente apenas se mudar a porta do WebSocket
+      # Credenciais do primeiro acesso — usadas apenas se users.json ainda não existir no volume.
+      # Após o primeiro run o arquivo é persistido e estas variáveis são ignoradas.
+      - ADMIN_USERNAME=admin
+      - ADMIN_PASSWORD=changeme  # altere antes de subir em produção
     volumes:
       # Named volumes — persistidos no container, não expostos ao host
       # (views, layouts, definições de cards, sessões, configs de uptime)

@@ -95,7 +95,36 @@ describe('POST /api/views', () => {
     expect(res.body).toHaveProperty('error');
   });
 
-  test('retorna 500 quando não consegue ler views.json', async () => {
+  test('cria primeira visão com 201 quando views.json ainda não existe (ENOENT)', async () => {
+    const err = Object.assign(new Error('ENOENT: no such file'), { code: 'ENOENT' });
+    fs.readFile.mockImplementation((p, enc, cb) => cb(err));
+    fs.writeFile.mockImplementation((p, data, enc, cb) => cb(null));
+
+    const res = await request(app)
+      .post('/api/views')
+      .send({ title: 'Primeira Visão' })
+      .set('Content-Type', 'application/json');
+
+    expect(res.status).toBe(201);
+    expect(res.body).toMatchObject({ value: 'primeira-visao', title: 'Primeira Visão' });
+  });
+
+  test('salva array com uma entrada quando views.json não existia (ENOENT)', async () => {
+    const err = Object.assign(new Error('ENOENT: no such file'), { code: 'ENOENT' });
+    fs.readFile.mockImplementation((p, enc, cb) => cb(err));
+    fs.writeFile.mockImplementation((p, data, enc, cb) => cb(null));
+
+    await request(app)
+      .post('/api/views')
+      .send({ title: 'Primeira Visão' })
+      .set('Content-Type', 'application/json');
+
+    const savedViews = JSON.parse(fs.writeFile.mock.calls[0][1]);
+    expect(savedViews).toHaveLength(1);
+    expect(savedViews[0]).toMatchObject({ value: 'primeira-visao' });
+  });
+
+  test('retorna 500 quando não consegue ler views.json por erro de I/O', async () => {
     fs.readFile.mockImplementation((p, enc, cb) => cb(new Error('disk error')));
 
     const res = await request(app)

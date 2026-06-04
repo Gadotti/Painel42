@@ -32,8 +32,18 @@ describe('GET /api/views', () => {
     expect(res.body).toEqual(views);
   });
 
-  test('retorna 500 quando o arquivo não pode ser lido', async () => {
-    fs.readFile.mockImplementation((p, enc, cb) => cb(new Error('not found')));
+  test('retorna array vazio com 200 quando views.json não existe (ENOENT)', async () => {
+    const err = Object.assign(new Error('ENOENT: no such file'), { code: 'ENOENT' });
+    fs.readFile.mockImplementation((p, enc, cb) => cb(err));
+
+    const res = await request(app).get('/api/views');
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual([]);
+  });
+
+  test('retorna 500 quando o arquivo não pode ser lido por erro de I/O', async () => {
+    fs.readFile.mockImplementation((p, enc, cb) => cb(new Error('disk error')));
 
     const res = await request(app).get('/api/views');
 
