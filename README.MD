@@ -25,6 +25,26 @@ Modal de edição do monitoramento de serviços, onde é possível configurar UR
 
 ## Quickstart
 
+### Option A — Docker (recommended)
+
+```bash
+# 1. Create host directories for data files written by external scripts
+mkdir -p public/local-events public/local-data-uptimes \
+         public/local-data-charts public/local-pages scripts/logs
+
+# 2. Edit docker-compose.yml
+#    - Set WS_ADDRESS to your server IP if the dashboard will be accessed from another machine
+#    - Set ADMIN_PASSWORD to a strong password before starting
+
+# 3. Pull and start
+docker compose pull
+docker compose up -d
+```
+
+Open [http://localhost:3123](http://localhost:3123) in your browser. See the [Docker](#docker) section for the full `docker-compose.yml` and all configuration options.
+
+### Option B — Local (Node.js)
+
 ```bash
 npm install
 
@@ -195,7 +215,102 @@ npm start
 
 The zip respects `.gitignore` and renames `server-config.json` and `websocket-config.json` to `*-SAMPLE` to avoid overwriting existing production configs.
 
+A new release also triggers the GitHub Actions workflow (on `git tag vX.Y.Z && git push origin vX.Y.Z`) which publishes the Docker image and attaches the zip to a GitHub Release automatically.
+
 ---
+
+## Docker
+
+Painel42 is published as a container image on the [GitHub Container Registry](https://github.com/gadotti/painel42/pkgs/container/painel42). The image bundles Node.js and Python 3 — no separate containers needed.
+
+### Requirements
+
+- Docker 24+
+- Docker Compose v2
+
+### Running with Docker Compose
+
+Copy the snippet below into a `docker-compose.yml`, fill in the required values, and start the stack:
+
+```yaml
+services:
+  painel:
+    image: ghcr.io/gadotti/painel42:latest
+    restart: unless-stopped
+    ports:
+      - "3123:3123"   # HTTP
+      - "8123:8123"   # WebSocket
+    environment:
+      - HTTP_PORT=3123
+      - WS_ADDRESS=localhost      # change to your server IP if accessed from another machine
+      - ADMIN_USERNAME=admin
+      - ADMIN_PASSWORD=changeme   # change before deploying to production
+    volumes:
+      - painel_configs:/app/configs
+      - painel_cards:/app/cards
+      - ./public/local-events:/app/public/local-events
+      - ./public/local-data-uptimes:/app/public/local-data-uptimes
+      - ./public/local-data-charts:/app/public/local-data-charts
+      - ./public/local-pages:/app/public/local-pages
+      - ./scripts/logs:/app/scripts/logs
+
+volumes:
+  painel_configs:
+  painel_cards:
+```
+
+```bash
+docker compose pull
+docker compose up -d
+```
+
+The application will be available at `http://localhost:3123`.
+
+### Environment variables
+
+| Variable | Required | Default | Description |
+|---|---|---|---|
+| `ADMIN_USERNAME` | Yes | — | Admin username created on first run (ignored after `users.json` exists) |
+| `ADMIN_PASSWORD` | Yes | — | Admin password — use a strong value in production |
+| `WS_ADDRESS` | Yes | `localhost` | WebSocket address used by the browser. Change to the server IP or hostname if the dashboard is accessed from another machine |
+| `HTTP_PORT` | No | `3123` | Internal HTTP port of the container |
+| `WS_PORT` | No | `8123` | Internal WebSocket port of the container |
+
+If `HTTP_PORT` or `WS_PORT` are changed, update the right-hand side of the corresponding `ports:` entry to match.
+
+### First-time setup
+
+On first start, the entrypoint automatically creates the admin user defined by `ADMIN_USERNAME` / `ADMIN_PASSWORD` if no `users.json` exists yet in the volume. After that, those variables are ignored.
+
+To manage users after the first run:
+
+```bash
+docker compose exec painel node create-user.js
+docker compose exec painel node create-user.js --list
+docker compose exec painel node create-user.js --reset <username>
+```
+
+### Persistent data
+
+Application state (views, layouts, card definitions, sessions) is stored in named Docker volumes (`painel_configs`, `painel_cards`). These survive container restarts and image updates — `docker compose pull && docker compose up -d` updates the app without losing configuration.
+
+### External data files
+
+The directories below are bind-mounted from the host. External Python scripts (or any tool) write files there; Chokidar inside the container detects changes in polling mode and pushes WebSocket updates to the browser automatically.
+
+| Host path | Container path | Content |
+|---|---|---|
+| `./public/local-events` | `/app/public/local-events` | Event CSV files |
+| `./public/local-data-uptimes` | `/app/public/local-data-uptimes` | Uptime result JSON files |
+| `./public/local-data-charts` | `/app/public/local-data-charts` | Pre-computed chart data |
+| `./public/local-pages` | `/app/public/local-pages` | Local HTML pages (iframes) |
+| `./scripts/logs` | `/app/scripts/logs` | Python script logs |
+
+Absolute host paths are also supported:
+
+```yaml
+- /srv/painel/local-data-uptimes:/app/public/local-data-uptimes
+```
 
 ## Testing
 
@@ -209,4 +324,4 @@ npm run test:coverage   # with coverage report
 
 ## License
 
-This project is unlicensed. Use at your own discretion.
+This project is licensed under the [MIT License](LICENSE)
