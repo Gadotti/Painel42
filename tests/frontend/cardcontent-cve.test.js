@@ -57,6 +57,37 @@ describe('toggleCveAssetsDetails', () => {
   });
 });
 
+// ─── loadCardContentCveAssets — normalização de caminho ───
+
+describe('loadCardContentCveAssets — normalização de caminho', () => {
+  function makeCveCard(id) {
+    const el = document.createElement('div');
+    el.id = id;
+    el.innerHTML = '<div class="asset-card"></div><div class="card-content"></div>';
+    document.body.appendChild(el);
+  }
+
+  afterEach(() => { document.body.innerHTML = ''; });
+
+  test('remove o prefixo public/ antes do fetch', async () => {
+    makeCveCard('cve-rel');
+    global.fetch.mockResolvedValueOnce({ ok: true, json: () => Promise.resolve({ report_items: [] }) });
+
+    await loadCardContentCveAssets({ id: 'cve-rel', sourceItems: 'public/local-events/cve.json' });
+
+    expect(global.fetch).toHaveBeenCalledWith('local-events/cve.json');
+  });
+
+  test('remove caminho absoluto do container (/app/public/...) antes do fetch', async () => {
+    makeCveCard('cve-abs');
+    global.fetch.mockResolvedValueOnce({ ok: true, json: () => Promise.resolve({ report_items: [] }) });
+
+    await loadCardContentCveAssets({ id: 'cve-abs', sourceItems: '/app/public/local-events/cve.json' });
+
+    expect(global.fetch).toHaveBeenCalledWith('local-events/cve.json');
+  });
+});
+
 // ─── getCveAssessPanel ───
 
 describe('getCveAssessPanel', () => {

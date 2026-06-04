@@ -6,7 +6,7 @@ async function loadCardContentCveAssets(card) {
   const wrapper = cardElement.querySelector('.asset-card');
 
   try {
-    const filePath = card.sourceItems.replace(/^public\//, '').trim();
+    const filePath = card.sourceItems.replace(/^.*public\//, '').trim();
     const response = await fetch(filePath);
     if (!response.ok) {
       throw new Error(`Erro ao carregar CVE report: ${response.status}`);

@@ -5,7 +5,7 @@ async function loadCardContentUptime(card) {
   const wrapper = cardElement.querySelector('.uptime-card');
 
   try {
-    const filePath = card.sourceItems.replace(/^public\//, '').trim();
+    const filePath = card.sourceItems.replace(/^.*public\//, '').trim();
     const response = await fetch(filePath);
     if (!response.ok) {
       throw new Error(`Erro ao carregar status de uptime: ${response.status}`);

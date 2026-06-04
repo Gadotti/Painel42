@@ -49,7 +49,7 @@ async function loadCardContentMetric(card) {
           const file = sourceCard.sourceItems;
           if (!file) break;
           subscribeCardToFile(card.id, file);
-          const filePath = file.replace(/^public\//, '').trim();
+          const filePath = file.replace(/^.*public\//, '').trim();
           const res = await fetch(filePath);
           if (!res.ok) break;
           const data = await res.json();
@@ -63,7 +63,7 @@ async function loadCardContentMetric(card) {
           const file = sourceCard.sourceItems;
           if (!file) break;
           subscribeCardToFile(card.id, file);
-          const filePath = file.replace(/^public\//, '').trim();
+          const filePath = file.replace(/^.*public\//, '').trim();
           const res = await fetch(filePath);
           if (!res.ok) break;
           const data = await res.json();

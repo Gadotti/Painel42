@@ -153,6 +153,20 @@ describe('loadCardContentMetric — uptime source', () => {
     const calls = global.fetch.mock.calls.map(c => c[0]);
     expect(calls).toContain('local/status.json');
   });
+
+  test('remove caminho absoluto do container (/app/public/...) antes do fetch', async () => {
+    makeCardEl('m-up-abs');
+    mockCards([
+      { id: 'm-up-abs', cardType: 'metric', metric: { sources: [{ cardId: 'src-up-abs' }] } },
+      { id: 'src-up-abs', cardType: 'uptime', title: 'P', sourceItems: '/app/public/local-data-uptimes/up.json' },
+    ]);
+    mockJson([{ servicesStatus: [] }]);
+
+    await loadCardContentMetric({ id: 'm-up-abs', metric: { sources: [{ cardId: 'src-up-abs' }] } });
+
+    const calls = global.fetch.mock.calls.map(c => c[0]);
+    expect(calls).toContain('local-data-uptimes/up.json');
+  });
 });
 
 // ─── cve-assets source ───
@@ -173,6 +187,20 @@ describe('loadCardContentMetric — cve-assets source', () => {
 
     const value = document.getElementById('m-cve').querySelector('.metric-value');
     expect(value.textContent.trim()).toBe('3');
+  });
+
+  test('remove caminho absoluto do container (/app/public/...) antes do fetch', async () => {
+    makeCardEl('m-cve-abs');
+    mockCards([
+      { id: 'm-cve-abs', cardType: 'metric', metric: { sources: [{ cardId: 'src-cve-abs' }] } },
+      { id: 'src-cve-abs', cardType: 'cve-assets', title: 'CVEs', sourceItems: '/app/public/local-events/cve.json' },
+    ]);
+    mockJson({ report_items: [] });
+
+    await loadCardContentMetric({ id: 'm-cve-abs', metric: { sources: [{ cardId: 'src-cve-abs' }] } });
+
+    const calls = global.fetch.mock.calls.map(c => c[0]);
+    expect(calls).toContain('local-events/cve.json');
   });
 });
 
