@@ -1,0 +1,44 @@
+# Painel de Monitoramento — Docker Compose
+#
+# ANTES DO PRIMEIRO RUN:
+#   1. Defina WS_ADDRESS abaixo com o IP ou hostname do servidor
+#   2. Crie as pastas que os scripts Python vão escrever no host:
+#        mkdir -p public/local-events public/local-data-uptimes \
+#                 public/local-data-charts public/local-pages scripts/logs
+#
+# FLUXO DE DADOS:
+#   Scripts Python no HOST escrevem arquivos nas pastas bind-montadas abaixo.
+#   O Chokidar dentro do container monitora esses caminhos (usePolling está ativo)
+#   e emite atualizações via WebSocket para o browser recarregar os cards.
+
+services:
+  painel:
+    image: ghcr.io/gadotti/painel42:latest
+    # build: .    # descomente para build local em vez de puxar do registry
+    restart: unless-stopped
+    ports:
+      # Formato HOST:CONTAINER — altere o lado esquerdo para mudar a porta exposta no host.
+      # Se mudar HTTP_PORT ou WS_PORT abaixo, atualize também o lado direito aqui.
+      - "3123:3123"    # HTTP — dashboard
+      - "8123:8123"    # WebSocket — atualizações em tempo real
+    environment:
+      - HTTP_PORT=3123        # porta interna HTTP do container
+      - WS_ADDRESS=localhost  # altere para o IP do servidor se o acesso for de outra máquina
+      # WS_PORT=8123          # descomente apenas se mudar a porta do WebSocket
+    volumes:
+      # Named volumes — persistidos no container, não expostos ao host
+      # (views, layouts, definições de cards, sessões, configs de uptime)
+      - painel_configs:/app/configs
+      - painel_cards:/app/cards
+
+      # Bind mounts — pastas gravadas por scripts externos no HOST
+      # O container enxerga as alterações e atualiza os cards via WebSocket
+      - ./public/local-events:/app/public/local-events
+      - ./public/local-data-uptimes:/app/public/local-data-uptimes
+      - ./public/local-data-charts:/app/public/local-data-charts
+      - ./public/local-pages:/app/public/local-pages
+      - ./scripts/logs:/app/scripts/logs
+
+volumes:
+  painel_configs:
+  painel_cards:

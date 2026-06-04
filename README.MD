@@ -1,4 +1,4 @@
-# Painel SI
+# Painel42
 
 Self-hosted, real-time security and infrastructure monitoring dashboard. Displays configurable cards organized in independent views. Data is produced externally (Python scripts or any tool) and written to JSON/CSV files; the server detects changes and pushes updates to cards via WebSocket automatically.
 

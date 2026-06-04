@@ -13,6 +13,9 @@ EXTRA_IGNORED_PATHS = {
     'CLAUDE.md',
     'tests',
     'jest.setup.js',
+    'imgs',
+    '.github',       # CI/CD — não necessário no pacote de deploy
+    '.dockerignore', # usado apenas no build da imagem
 }
 
 # Files that should be renamed with -SAMPLE suffix in the zip
