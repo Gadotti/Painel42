@@ -2,11 +2,11 @@
 
 const fs   = require('fs');
 const path = require('path');
-const WebSocket = require('ws');
 const chokidar  = require('chokidar');
 
 const { createApp }     = require('./src/app');
 const { validateSession } = require('./src/auth');
+const { createWebSocketServer } = require('./src/wsServer');
 
 const VERBOSE = process.argv.includes('--verbose');
 
@@ -38,106 +38,33 @@ const WSPORT     = wsConfig.port           || 8123;
 console.log('Configurações carregadas:', { PORT, ADDRESS, PYTHON_CMD, WSPORT });
 
 // ------------------------------------------------------------------ WebSocket
-const wss = new WebSocket.Server({ port: WSPORT });
-console.log(`WebSocket server escutando na porta ${WSPORT}`);
-
-const watchedFiles = new Map(); // sanitizedPath -> Set<cardId>
-const clients      = new Set();
-
-function sanitizePath(partialPath) {
-  let p = partialPath.replace(/\/\//g, '/');
-  p = p.replace(/\//g, '\\');
-  return p;
-}
-
-function broadcast(messageObj) {
-  const message = JSON.stringify(messageObj);
-  clients.forEach((ws) => {
-    if (ws.readyState === WebSocket.OPEN) {
-      ws.send(message);
-    }
-  });
-}
-
-wss.on('connection', (ws, req) => {
-  const urlObj = new URL(req.url, 'http://localhost');
-  const token  = urlObj.searchParams.get('token') || '';
-
-  // Reject if auth is configured and token is invalid
-  const usersPath = path.join(__dirname, 'configs', 'users.json');
-  let authEnabled = false;
-  try {
-    const users = JSON.parse(fs.readFileSync(usersPath, 'utf8'));
-    authEnabled = Array.isArray(users) && users.length > 0;
-  } catch { /* no users file — auth not configured */ }
-
-  if (authEnabled && !validateSession(token)) {
-    ws.close(4401, 'Unauthorized');
-    return;
-  }
-
-  if (VERBOSE) console.log('Cliente WebSocket conectado.');
-  clients.add(ws);
-
-  ws.on('message', (raw) => {
-    try {
-      const { type, filePath, cardId } = JSON.parse(raw);
-
-      if (type === 'watch') {
-        const sanitizedPath = sanitizePath(filePath);
-
-        if (!watchedFiles.has(sanitizedPath)) {
-          watchedFiles.set(sanitizedPath, new Set());
-          watcher.add(sanitizedPath);
-        }
-        watchedFiles.get(sanitizedPath).add(cardId);
-        if (VERBOSE) console.log(`Monitorando: ${sanitizedPath} -> ${cardId}`);
-      }
-    } catch (err) {
-      if (VERBOSE) console.error('Erro ao processar mensagem WebSocket:', err.message);
-    }
-  });
-
-  ws.on('close', () => {
-    clients.delete(ws);
-    if (VERBOSE) console.log('Cliente desconectado.');
-  });
-});
-
 const watcher = chokidar.watch([], { ignoreInitial: true, usePolling: true, interval: 3000 });
 
-watcher.on('change', (changedPath) => {
-  const sanitizedPath = sanitizePath(changedPath);
-  if (VERBOSE) console.log(`Alteração detectada em: ${sanitizedPath}`);
+// auth habilitada se houver usuários configurados (lido a cada conexão)
+function isAuthEnabled() {
+  try {
+    const usersPath = path.join(__dirname, 'configs', 'users.json');
+    const users = JSON.parse(fs.readFileSync(usersPath, 'utf8'));
+    return Array.isArray(users) && users.length > 0;
+  } catch { /* no users file — auth not configured */ }
+  return false;
+}
 
-  const cardIds = watchedFiles.get(sanitizedPath);
-  if (cardIds) {
-    cardIds.forEach((cardId) => broadcast({ type: 'update', cardId }));
-  }
+const { getHealthInfo } = createWebSocketServer({
+  port: WSPORT,
+  watcher,
+  isAuthEnabled,
+  validateSession,
+  verbose: VERBOSE,
 });
+
+console.log(`WebSocket server escutando na porta ${WSPORT}`);
 
 // ------------------------------------------------------------------ HTTP
 const app = createApp({
   rootDir: __dirname,
   PYTHON_CMD,
-  getHealthInfo() {
-    const watched = {};
-    watchedFiles.forEach((cardIds, filePath) => {
-      watched[filePath] = Array.from(cardIds);
-    });
-
-    return {
-      websocket: {
-        status: wss.address() ? 'ok' : 'error',
-        port: WSPORT,
-        connectedClients: clients.size,
-      },
-      watchers: {
-        totalFiles: watchedFiles.size,
-        watched,
-      },
-    };
-  },
+  getHealthInfo,
 });
 
 app.listen(PORT, ADDRESS, () => {
