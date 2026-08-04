@@ -64,8 +64,16 @@
     "zoom": 1
   },
   {
-    "id": "logins-por-hora",
+    "id": "logs-sistema",
     "order": 8,
+    "title": "Logs do Sistema",
+    "columns": 1,
+    "rows": 1,
+    "zoom": 1
+  },
+  {
+    "id": "logins-por-hora",
+    "order": 9,
     "title": "Logins por Hora",
     "columns": 1,
     "rows": 1,
@@ -73,16 +81,8 @@
   },
   {
     "id": "trafego-mbps",
-    "order": 9,
-    "title": "Tráfego de Rede (Mbps)",
-    "columns": 1,
-    "rows": 1,
-    "zoom": 1
-  },
-  {
-    "id": "logs-sistema",
     "order": 10,
-    "title": "Logs do Sistema",
+    "title": "Tráfego de Rede (Mbps)",
     "columns": 1,
     "rows": 1,
     "zoom": 1
