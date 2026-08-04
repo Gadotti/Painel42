@@ -1,17 +1,33 @@
 'use strict';
 
 const WebSocket = require('ws');
+const path      = require('path');
 const { URL }   = require('url');
 
 /**
  * Normaliza um caminho parcial recebido do cliente (ou do chokidar) para a
  * forma usada como chave no Map `watchedFiles`. Precisa ser idêntica tanto na
  * recepção da mensagem `watch` quanto no processamento do evento `change`.
+ *
+ * A chave é sempre em formato POSIX ("/") para que o mesmo card produza a mesma
+ * chave no Windows (chokidar emite "\") e no Linux (chokidar emite "/").
+ * NÃO usar esta forma para falar com o chokidar — veja toNativePath().
  */
 function sanitizePath(partialPath) {
-  let p = partialPath.replace(/\/\//g, '/');
-  p = p.replace(/\//g, '\\');
-  return p;
+  return String(partialPath)
+    .replace(/\\/g, '/')
+    .replace(/\/{2,}/g, '/')
+    .trim();
+}
+
+/**
+ * Converte a chave canônica para o caminho real do sistema de arquivos, com o
+ * separador nativo do SO. É esta forma que vai para watcher.add(): no Linux,
+ * "public\local-events\a.csv" seria um nome de arquivo literal (com barras
+ * invertidas no nome), e o watcher nunca dispararia.
+ */
+function toNativePath(sanitized) {
+  return path.normalize(sanitized);
 }
 
 /**
@@ -70,7 +86,7 @@ function createWebSocketServer(config = {}) {
 
           if (!watchedFiles.has(sanitizedPath)) {
             watchedFiles.set(sanitizedPath, new Set());
-            if (watcher) watcher.add(sanitizedPath);
+            if (watcher) watcher.add(toNativePath(sanitizedPath));
           }
           watchedFiles.get(sanitizedPath).add(cardId);
           if (verbose) console.log(`Monitorando: ${sanitizedPath} -> ${cardId}`);
@@ -87,15 +103,24 @@ function createWebSocketServer(config = {}) {
   });
 
   if (watcher) {
-    watcher.on('change', (changedPath) => {
+    // 'add' também notifica: scripts que gravam de forma atômica (tmp + rename,
+    // comum ao escrever em pasta de rede) recriam o inode e o chokidar pode
+    // emitir unlink+add em vez de change. Com ignoreInitial:true, um 'add' após
+    // o registro sempre significa arquivo recriado.
+    const onFsEvent = (event) => (changedPath) => {
       const sanitizedPath = sanitizePath(changedPath);
-      if (verbose) console.log(`Alteração detectada em: ${sanitizedPath}`);
+      if (verbose) console.log(`Alteração detectada (${event}) em: ${sanitizedPath}`);
 
       const cardIds = watchedFiles.get(sanitizedPath);
       if (cardIds) {
         cardIds.forEach((cardId) => broadcast({ type: 'update', cardId }));
+      } else if (verbose) {
+        console.log(`  (ignorado — nenhum card assinou "${sanitizedPath}")`);
       }
-    });
+    };
+
+    watcher.on('change', onFsEvent('change'));
+    watcher.on('add', onFsEvent('add'));
   }
 
   function getHealthInfo() {
@@ -122,4 +147,4 @@ function createWebSocketServer(config = {}) {
   return { wss, clients, watchedFiles, broadcast, sanitizePath, getHealthInfo };
 }
 
-module.exports = { createWebSocketServer, sanitizePath };
+module.exports = { createWebSocketServer, sanitizePath, toNativePath };

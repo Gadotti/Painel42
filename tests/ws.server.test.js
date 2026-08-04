@@ -8,7 +8,8 @@
 
 const WebSocket = require('ws');
 const { EventEmitter } = require('events');
-const { createWebSocketServer, sanitizePath } = require('../src/wsServer');
+const path = require('path');
+const { createWebSocketServer, sanitizePath, toNativePath } = require('../src/wsServer');
 
 // --------------------------------------------------------------- utilitários
 function waitFor(emitter, event) {
@@ -32,16 +33,33 @@ function makeWatcher() {
 
 // =========================================================== sanitizePath (puro)
 describe('sanitizePath', () => {
-  test('converte barras "/" em "\\"', () => {
-    expect(sanitizePath('public/local-events/x.csv')).toBe('public\\local-events\\x.csv');
+  test('mantém a chave em formato POSIX ("/")', () => {
+    expect(sanitizePath('public/local-events/x.csv')).toBe('public/local-events/x.csv');
   });
 
-  test('colapsa "//" duplicadas antes de converter', () => {
-    expect(sanitizePath('public//local-events//x.csv')).toBe('public\\local-events\\x.csv');
+  test('converte "\\" (chokidar no Windows) para a mesma chave POSIX', () => {
+    expect(sanitizePath('public\\local-events\\x.csv')).toBe('public/local-events/x.csv');
+  });
+
+  test('colapsa barras duplicadas', () => {
+    expect(sanitizePath('public//local-events//x.csv')).toBe('public/local-events/x.csv');
   });
 
   test('caminho sem barras permanece inalterado', () => {
     expect(sanitizePath('arquivo.csv')).toBe('arquivo.csv');
+  });
+
+  test('cliente e chokidar produzem a mesma chave independente do separador', () => {
+    expect(sanitizePath('public/local-events/x.csv'))
+      .toBe(sanitizePath('public\\local-events\\x.csv'));
+  });
+});
+
+// =========================================================== toNativePath (puro)
+describe('toNativePath', () => {
+  test('devolve o caminho com o separador nativo do SO', () => {
+    expect(toNativePath('public/local-events/x.csv'))
+      .toBe(['public', 'local-events', 'x.csv'].join(path.sep));
   });
 });
 
@@ -85,7 +103,8 @@ describe('createWebSocketServer (integração — ws real)', () => {
 
     await waitForCondition(() => server.watchedFiles.has(sanitized));
     expect(server.watchedFiles.get(sanitized).has('card-1')).toBe(true);
-    expect(watcher.add).toHaveBeenCalledWith(sanitized);
+    // chokidar recebe o caminho nativo do SO, não a chave canônica do Map
+    expect(watcher.add).toHaveBeenCalledWith(toNativePath(sanitized));
   });
 
   test('múltiplos cards no mesmo arquivo são deduplicados em um Set e watcher.add é chamado uma única vez', async () => {
@@ -115,6 +134,39 @@ describe('createWebSocketServer (integração — ws real)', () => {
     const msg = waitFor(ws, 'message');
     // chokidar entrega o caminho com "/"; sanitizePath normaliza para a mesma chave do Map
     watcher.emit('change', filePath);
+    const [raw] = await msg;
+
+    expect(JSON.parse(raw.toString())).toEqual({ type: 'update', cardId: 'card-1' });
+  });
+
+  test('evento "add" (arquivo recriado por gravação atômica) também dispara update', async () => {
+    const ws = connect();
+    await waitFor(ws, 'open');
+
+    const filePath  = 'public/local-events/a.csv';
+    const sanitized = sanitizePath(filePath);
+    ws.send(JSON.stringify({ type: 'watch', filePath, cardId: 'card-1' }));
+    await waitForCondition(() => server.watchedFiles.has(sanitized));
+
+    const msg = waitFor(ws, 'message');
+    watcher.emit('add', filePath);
+    const [raw] = await msg;
+
+    expect(JSON.parse(raw.toString())).toEqual({ type: 'update', cardId: 'card-1' });
+  });
+
+  test('change com separador nativo do SO casa com a chave registrada pelo cliente', async () => {
+    const ws = connect();
+    await waitFor(ws, 'open');
+
+    const filePath  = 'public/local-events/a.csv';
+    const sanitized = sanitizePath(filePath);
+    ws.send(JSON.stringify({ type: 'watch', filePath, cardId: 'card-1' }));
+    await waitForCondition(() => server.watchedFiles.has(sanitized));
+
+    const msg = waitFor(ws, 'message');
+    // chokidar emite o caminho como o SO o entrega (com "\" no Windows)
+    watcher.emit('change', toNativePath(sanitized));
     const [raw] = await msg;
 
     expect(JSON.parse(raw.toString())).toEqual({ type: 'update', cardId: 'card-1' });
@@ -180,7 +232,7 @@ describe('createWebSocketServer (integração — ws real)', () => {
     expect(info.websocket.port).toBe(port);
     expect(info.websocket.connectedClients).toBe(1);
     expect(info.watchers.totalFiles).toBe(1);
-    expect(info.watchers.watched['public\\local-events\\c.csv']).toEqual(['card-5']);
+    expect(info.watchers.watched['public/local-events/c.csv']).toEqual(['card-5']);
   });
 });
 
