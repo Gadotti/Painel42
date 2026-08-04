@@ -2,29 +2,44 @@
    UPTIME CARD — alinhado ao design system
    ================================================ */
 
+/* Coluna flex: a rolagem vive em .uptime-list, para que o rodapé com a data da
+   última verificação fique fixo na base, fora da área de rolagem. */
 .uptime-card {
   user-select: text;
   -webkit-user-drag: none;
   pointer-events: auto;
+  display: flex;
+  flex-direction: column;
   height: 100%;
-  overflow-y: auto;
-}
-
-.uptime-card::-webkit-scrollbar {
-  width: 3px;
-}
-
-.uptime-card::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.1);
-  border-radius: 2px;
+  min-height: 0;
+  overflow: hidden;
 }
 
 .uptime-card-content {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
   padding: 10px 14px;
   border-radius: 8px;
   color: var(--text);
   font-family: 'Segoe UI', system-ui, sans-serif;
   font-size: 0.9rem;
+}
+
+.uptime-list {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.uptime-list::-webkit-scrollbar {
+  width: 3px;
+}
+
+.uptime-list::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 2px;
 }
 
 .uptime-header {
@@ -90,13 +105,10 @@
   border: 1px solid rgba(245, 138, 138, 0.2);
 }
 
-.uptime-footer {
-  font-size: 0.78rem;
-  color: var(--text-muted);
-  margin-top: auto;
-  display: flex;
-  gap: 4px;
-  padding-top: 8px;
+/* Rodapé: aparência em .card-footer (main.css). Aqui apenas o espaçamento
+   entre o rótulo e a data. */
+.uptime-footer .uptime-label {
+  margin-right: 4px;
 }
 
 .uptime-label {

@@ -2,13 +2,23 @@
    DYNAMIC LIST — lista com campos configuráveis
    ================================================ */
 
+/* Coluna flex: a lista ocupa o espaço restante e rola; o rodapé fica fixo
+   na base, fora da área de rolagem do conteúdo. */
+.dynamic-list-wrapper {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+
 .dynamic-list {
   list-style: none;
   padding: 0;
   margin: 0;
   font-size: 0.85rem;
   font-family: 'Segoe UI', system-ui, sans-serif;
-  height: 100%;
+  flex: 1 1 auto;
+  min-height: 0;
   overflow-y: auto;
 }
 
@@ -38,6 +48,10 @@
 .dynamic-list-item:hover {
   background-color: rgba(255, 255, 255, 0.04);
 }
+
+/* ── Rodapé: data/hora da última alteração do arquivo de origem ──
+   Aparência vem de .card-footer (main.css), compartilhada com uptime e
+   cve-assets. .dynamic-list-footer serve apenas como hook para o JS. */
 
 /* ── Field types ── */
 

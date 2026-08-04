@@ -168,7 +168,13 @@ function createCardElement(config) {
       break;
     case 'dynamic-list':
       externalSourceMonitor = config.dynamicList?.sourceItems;
-      contentHtml = '<ul class="dynamic-list"></ul>';
+      // O wrapper mantém o rodapé (data de alteração do arquivo) fora da área
+      // de rolagem: a lista rola, o rodapé fica fixo na base do card.
+      contentHtml = `
+        <div class="dynamic-list-wrapper">
+          <ul class="dynamic-list"></ul>
+          <div class="dynamic-list-footer card-footer"></div>
+        </div>`;
       break;
     case 'metric':
       contentHtml = '<div class="metric-card"></div>';

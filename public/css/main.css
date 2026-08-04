@@ -157,6 +157,29 @@ body {
   min-height: 0;
 }
 
+/* ------------------------------
+    Rodapé de card — data/hora da última atualização dos dados.
+    Compartilhado por dynamic-list, uptime e cve-assets: o container do card é
+    flex-column, a região rolável leva flex:1 + min-height:0 e este rodapé fica
+    fixo na base, fora da área de rolagem.
+------------------------------- */
+.card-footer {
+  flex: 0 0 auto;
+  padding: 4px 2px 0;
+  border-top: 1px solid var(--border-subtle);
+  color: var(--text-muted);
+  font-family: 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
+  font-size: 0.68rem;
+  text-align: right;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.card-footer:empty {
+  display: none;
+}
+
 .card-content::-webkit-scrollbar {
   width: 3px;
 }

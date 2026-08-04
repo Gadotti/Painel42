@@ -53,6 +53,46 @@ async function loadCardContentDynamicList(card) {
     container.innerHTML = '';
     container.insertAdjacentHTML('beforeend', contentHtml);
   }
+
+  await updateDynamicListFooter(cardElement, cfg.sourceItems);
+}
+
+/**
+ * Preenche o rodapé do card com a data/hora da última alteração do arquivo
+ * de origem. O mtime vem de /api/file-info (fs.promises.stat — mesmo
+ * comportamento em Windows e Linux) em ISO 8601 e é exibido no fuso local do
+ * navegador.
+ */
+async function updateDynamicListFooter(cardElement, sourceFile) {
+  const footer = cardElement.querySelector('.dynamic-list-footer');
+  if (!footer) return;
+
+  if (!sourceFile) {
+    footer.textContent = '';
+    return;
+  }
+
+  try {
+    const response = await fetch(`/api/file-info?file=${encodeURIComponent(sourceFile)}`);
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+
+    const info = await response.json();
+    const date = new Date(info.mtime);
+    if (isNaN(date.getTime())) throw new Error('mtime inválido');
+
+    footer.textContent = `Atualizado em ${formatDateTimeBR(date)}`;
+    footer.title = `Última alteração de ${sourceFile}`;
+  } catch (err) {
+    console.error('Erro ao obter a data de alteração do arquivo:', err);
+    footer.textContent = '';
+    footer.removeAttribute('title');
+  }
+}
+
+function formatDateTimeBR(date) {
+  const pad = n => n.toString().padStart(2, '0');
+  return `${pad(date.getDate())}/${pad(date.getMonth() + 1)}/${date.getFullYear()} `
+       + `${pad(date.getHours())}:${pad(date.getMinutes())}`;
 }
 
 function renderDynamicField(item, field) {
@@ -62,9 +102,7 @@ function renderDynamicField(item, field) {
     case 'date': {
       const date = new Date(raw);
       if (isNaN(date.getTime())) return `<span class="dl-field dl-field--date">${raw}</span>`;
-      const pad = n => n.toString().padStart(2, '0');
-      const formatted = `${pad(date.getDate())}/${pad(date.getMonth() + 1)}/${date.getFullYear()} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
-      return `<span class="dl-field dl-field--date">${formatted}</span>`;
+      return `<span class="dl-field dl-field--date">${formatDateTimeBR(date)}</span>`;
     }
     case 'url':
       if (!raw) return '<span class="dl-field dl-field--url"></span>';

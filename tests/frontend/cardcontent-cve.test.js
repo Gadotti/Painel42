@@ -88,6 +88,71 @@ describe('loadCardContentCveAssets — normalização de caminho', () => {
   });
 });
 
+// ─── loadCardContentCveAssets — rodapé "Última varredura" ───
+
+describe('loadCardContentCveAssets — rodapé', () => {
+  function makeCveCard(id) {
+    const el = document.createElement('div');
+    el.id = id;
+    el.innerHTML = '<div class="asset-card"></div><div class="card-content"></div>';
+    document.body.appendChild(el);
+    return el;
+  }
+
+  afterEach(() => { document.body.innerHTML = ''; });
+
+  function mockReport(lastScan) {
+    global.fetch.mockResolvedValueOnce({
+      ok: true,
+      json: () => Promise.resolve({
+        last_scan: lastScan,
+        report_items: [
+          { id: 1, name: 'Ativo A', url: 'https://a.com', current_version: '1.0', risk: 'high', cves: [] },
+        ],
+      }),
+    });
+  }
+
+  test('mantém a data da última varredura vinda do arquivo de origem', async () => {
+    const el = makeCveCard('cve-footer');
+    mockReport('01/03/2025 08:00');
+
+    await loadCardContentCveAssets({ id: 'cve-footer', sourceItems: 'public/local-events/cve.json' });
+
+    const footer = el.querySelector('.asset-footer');
+    expect(footer.textContent).toContain('Última varredura: 01/03/2025 08:00');
+  });
+
+  test('usa o formato de rodapé compartilhado (.card-footer)', async () => {
+    const el = makeCveCard('cve-footer-class');
+    mockReport('01/03/2025 08:00');
+
+    await loadCardContentCveAssets({ id: 'cve-footer-class', sourceItems: 'public/local-events/cve.json' });
+
+    expect(el.querySelector('.asset-footer').classList.contains('card-footer')).toBe(true);
+  });
+
+  test('rodapé fica fora da lista rolável', async () => {
+    const el = makeCveCard('cve-footer-out');
+    mockReport('01/03/2025 08:00');
+
+    await loadCardContentCveAssets({ id: 'cve-footer-out', sourceItems: 'public/local-events/cve.json' });
+
+    const footer = el.querySelector('.asset-footer');
+    expect(footer.closest('.asset-list')).toBeNull();
+    expect(footer.parentElement.classList.contains('asset-card-content')).toBe(true);
+  });
+
+  test('exibe "—" quando o arquivo não traz last_scan', async () => {
+    const el = makeCveCard('cve-footer-empty');
+    mockReport(undefined);
+
+    await loadCardContentCveAssets({ id: 'cve-footer-empty', sourceItems: 'public/local-events/cve.json' });
+
+    expect(el.querySelector('.asset-footer').textContent).toContain('—');
+  });
+});
+
 // ─── getCveAssessPanel ───
 
 describe('getCveAssessPanel', () => {

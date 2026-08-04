@@ -24,6 +24,7 @@ Local-first architecture: data produced externally by Python scripts (uptime, CV
 │   ├── api.layout.save.test.js        # POST /api/layout/:viewName
 │   ├── api.meta.test.js               # GET /api/views, /api/cards, /version
 │   ├── api.csv.test.js                # GET /api/partial-csv, GET /api/csv-count
+│   ├── api.fileinfo.test.js           # GET /api/file-info
 │   ├── api.chartdata.test.js          # POST /api/chart-data
 │   ├── api.views.manage.test.js       # POST /api/views, DELETE /api/views
 │   ├── api.logs.test.js               # GET /api/logs, GET /api/logs/:filename
@@ -38,6 +39,7 @@ Local-first architecture: data produced externally by Python scripts (uptime, CV
 │       ├── main.test.js               # createCardElement, getLayoutConfig, adjustFrameZoom, loadCardsContent dispatch
 │       ├── cardcontent-cve.test.js    # CVE assets toggle, assessment panel, dropdowns
 │       ├── cardcontent-metric.test.js # loadCardContentMetric — all source types, subscriptions
+│       ├── cardcontent-dynamic-list.test.js # footer with the source file's last-modified date
 │       ├── cardeditor.test.js         # updateSourceRowVisibility, openMetricEditor
 │       ├── uptimeeditor.test.js       # custom dropdown (open/close/select), modal lifecycle
 │       └── healthcheck.test.js        # Health check modal open/close/render
@@ -47,7 +49,7 @@ Local-first architecture: data produced externally by Python scripts (uptime, CV
 │   ├── favicon.svg              # Four-square icon (accent #cc785c)
 │   ├── websocket-config.json    # WebSocket host/port for the frontend
 │   ├── css/
-│   │   ├── main.css             # Design tokens (:root), reset, grid, cards, modal base, buttons, resize
+│   │   ├── main.css             # Design tokens (:root), reset, grid, cards, `.card-footer`, modal base, buttons, resize
 │   │   ├── drawer.css           # Floating side drawer menu
 │   │   ├── event-list.css       # List card
 │   │   ├── frame-card.css       # iframe card + zoom
@@ -167,9 +169,9 @@ Python script → writes file (CSV/JSON)
 |---|---|---|
 | `chart` | Chart.js canvas | Inline JSON or Python via `/api/chart-data` |
 | `list` | `<ul>` event list | CSV via `/api/partial-csv` |
-| `uptime` | Status list | JSON (direct fetch from `public/`) |
-| `cve-assets` | Collapsible table | JSON (direct fetch from `public/`) |
-| `dynamic-list` | Configurable `<ul>` list | CSV via `/api/partial-csv` (custom separator) |
+| `uptime` | Status list + footer "Última verificação" | JSON (direct fetch from `public/`), date from `lastChecked` |
+| `cve-assets` | Collapsible table + footer "Última varredura" | JSON (direct fetch from `public/`), date from `last_scan` |
+| `dynamic-list` | Configurable `<ul>` list + footer with the source file's last-modified date | CSV via `/api/partial-csv` (custom separator), mtime via `/api/file-info` |
 | `metric` | KPI numeric counter | Aggregated from source card files |
 | `frame` | `<iframe>` with zoom | URL or local HTML |
 
@@ -191,6 +193,7 @@ Card definitions live in `cards/cards-list.json`, schema in `card.schema.json`.
 | `POST` | `/api/layout/:viewName` | Save full view layout |
 | `GET` | `/api/partial-csv?file=&limit=N` | Last N lines of CSV (preserves header) |
 | `GET` | `/api/csv-count?file=` | Total data row count in a CSV (excl. header and blank lines) |
+| `GET` | `/api/file-info?file=` | File metadata — `{ mtime (ISO 8601 UTC), size }` via `fs.promises.stat` (works on Windows and Linux) |
 | `GET` | `/api/logs` | List `.log` files in `scripts/logs/` |
 | `GET` | `/api/logs/:filename` | Log file content (validates path traversal) |
 | `GET` | `/api/uptime-config?file=` | Uptime config JSON (validates path traversal) |
@@ -251,6 +254,7 @@ The `dropdown-in` keyframe is defined in `drawer.css` and is globally available.
 
 - **Font:** `'Segoe UI', system-ui, -apple-system, sans-serif` (not `Arial`).
 - **Scrollbars:** `3px` width, thumb `rgba(255,255,255,0.12)`, radius `2px`.
+- **Card footers** (`dynamic-list`, `uptime`, `cve-assets`): the shared `.card-footer` class in `main.css` owns the look (right-aligned, monospace, `--text-muted`, top border, `flex: 0 0 auto`). Card-specific classes (`.dynamic-list-footer`, `.uptime-footer`, `.asset-footer`) are JS/structural hooks only — do not restyle them per card. To keep the footer out of the scroll area, the card wrapper is `display: flex; flex-direction: column` and only the list region gets `flex: 1 1 auto; min-height: 0; overflow-y: auto`.
 - **Collapsibles:** padding on inner children, never on the element with `max-height: 0`.
 - **`overflow: hidden`** only on containers with `max-height` transition, never on parents with children toggled via `display: block`.
 

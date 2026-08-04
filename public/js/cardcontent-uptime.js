@@ -60,10 +60,14 @@ async function loadCardContentUptime(card) {
       ? lastChecked.toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' }).replace(',', '')
       : 'Data inválida';
 
+    // .uptime-list é a única região rolável: mantém o rodapé com a data da
+    // última verificação fixo na base do card, fora da barra de rolagem.
     wrapper.innerHTML = `
     <div class="uptime-card-content">
-      ${uptimeBlocksHtml}
-      <div class="uptime-footer">
+      <div class="uptime-list">
+        ${uptimeBlocksHtml}
+      </div>
+      <div class="uptime-footer card-footer">
         <span class="uptime-label">Última verificação:</span>
         <span class="uptime-date">${formattedDate}</span>
       </div>

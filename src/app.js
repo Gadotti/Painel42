@@ -460,6 +460,34 @@ function createApp(config = {}) {
     }
   });
 
+  // ------------------------------------------------------------------ GET /api/file-info
+  // Metadados do arquivo de origem (data de modificação) — usado no rodapé dos cards.
+  // fs.stat entrega o mtime tanto em Windows quanto em Linux; a data é normalizada
+  // em ISO 8601 (UTC) e formatada no fuso local pelo front-end.
+  app.get('/api/file-info', async (req, res) => {
+    const filePath = req.query.file;
+
+    if (!filePath) {
+      return res.status(400).json({ error: 'Parâmetro "file" é obrigatório.' });
+    }
+
+    let stats;
+    try {
+      stats = await fs.promises.stat(filePath);
+    } catch {
+      return res.status(404).json({ error: 'Arquivo não encontrado' });
+    }
+
+    if (!stats.isFile()) {
+      return res.status(400).json({ error: 'O caminho informado não é um arquivo.' });
+    }
+
+    res.json({
+      mtime: stats.mtime.toISOString(),
+      size: stats.size,
+    });
+  });
+
   // ------------------------------------------------------------------ GET /api/partial-csv
   app.get('/api/partial-csv', async (req, res) => {
     const filePath = req.query.file;

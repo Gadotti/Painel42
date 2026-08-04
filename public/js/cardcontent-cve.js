@@ -127,7 +127,7 @@ async function loadCardContentCveAssets(card) {
         <div class="asset-list">
           ${cveReportBlocksHtml || '<p style="padding:12px;color:var(--text-muted);">Nenhum item no relatório.</p>'}
         </div>
-        <div class="asset-footer">
+        <div class="asset-footer card-footer">
           Última varredura: ${lastScan || '—'}
         </div>
       </div>

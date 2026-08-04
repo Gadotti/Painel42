@@ -90,6 +90,50 @@ describe('loadCardContentUptime — renderização', () => {
     expect(content.textContent).toContain('Offline');
   });
 
+  test('mantém a data da última verificação vinda do arquivo de origem', async () => {
+    makeUptimeCard('u-footer');
+    global.fetch.mockResolvedValueOnce({
+      ok: true,
+      json: () => Promise.resolve([{ servicesStatus: [], lastChecked: '2025-01-01T12:00:00Z' }]),
+    });
+
+    await loadCardContentUptime({ id: 'u-footer', sourceItems: 'public/local-data-uptimes/up.json' });
+
+    const footer = document.getElementById('u-footer').querySelector('.uptime-footer');
+    expect(footer.textContent).toContain('Última verificação:');
+    expect(footer.querySelector('.uptime-date').textContent).toMatch(/^\d{2}\/\d{2}\/\d{4} \d{2}:\d{2}:\d{2}$/);
+  });
+
+  test('rodapé usa o formato compartilhado (.card-footer) e fica fora da lista rolável', async () => {
+    makeUptimeCard('u-footer-out');
+    mockUptimeResponse();
+
+    await loadCardContentUptime({ id: 'u-footer-out', sourceItems: 'public/local-data-uptimes/up.json' });
+
+    const footer = document.getElementById('u-footer-out').querySelector('.uptime-footer');
+    expect(footer.classList.contains('card-footer')).toBe(true);
+    expect(footer.closest('.uptime-list')).toBeNull();
+    expect(footer.parentElement.classList.contains('uptime-card-content')).toBe(true);
+  });
+
+  test('os serviços são renderizados dentro da região rolável', async () => {
+    makeUptimeCard('u-list');
+    global.fetch.mockResolvedValueOnce({
+      ok: true,
+      json: () => Promise.resolve([{
+        servicesStatus: [
+          { url: 'https://a.com', name: 'Serviço A', status: 'online', lastStatusOnline: '', lastStatusOffline: '' },
+        ],
+        lastChecked: '2025-01-01T12:00:00Z',
+      }]),
+    });
+
+    await loadCardContentUptime({ id: 'u-list', sourceItems: 'public/local-data-uptimes/up.json' });
+
+    const list = document.getElementById('u-list').querySelector('.uptime-list');
+    expect(list.textContent).toContain('Serviço A');
+  });
+
   test('não lança erro quando o fetch falha', async () => {
     makeUptimeCard('u-err');
     global.fetch.mockResolvedValueOnce({ ok: false, status: 500 });
