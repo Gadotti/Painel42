@@ -140,3 +140,4 @@ public/logs/
 cards/cards-list.json
 configs/
 scripts/logs
+.claude/settings.local.json
