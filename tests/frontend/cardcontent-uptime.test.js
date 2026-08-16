@@ -6,6 +6,7 @@ const { loadScript } = require('./load-script');
 
 beforeAll(() => {
   global.fetch = jest.fn();
+  loadScript('helpers.js');            // cardFooterHtml, watchCardFooterFit
   loadScript('cardcontent-uptime.js');
 });
 
@@ -100,8 +101,20 @@ describe('loadCardContentUptime — renderização', () => {
     await loadCardContentUptime({ id: 'u-footer', sourceItems: 'public/local-data-uptimes/up.json' });
 
     const footer = document.getElementById('u-footer').querySelector('.uptime-footer');
-    expect(footer.textContent).toContain('Última verificação:');
-    expect(footer.querySelector('.uptime-date').textContent).toMatch(/^\d{2}\/\d{2}\/\d{4} \d{2}:\d{2}:\d{2}$/);
+    expect(footer.querySelector('.card-footer-label').textContent).toBe('Atualizado em');
+    expect(footer.querySelector('.card-footer-date').textContent).toMatch(/^\d{2}\/\d{2}\/\d{4} \d{2}:\d{2}:\d{2}$/);
+  });
+
+  test('rodapé usa a legenda padronizada "Atualizado em"', async () => {
+    makeUptimeCard('u-footer-label');
+    mockUptimeResponse();
+
+    await loadCardContentUptime({ id: 'u-footer-label', sourceItems: 'public/local-data-uptimes/up.json' });
+
+    const footer = document.getElementById('u-footer-label').querySelector('.uptime-footer');
+    expect(footer.textContent).toContain('Atualizado em');
+    expect(footer.textContent).not.toContain('Última verificação');
+    expect(footer.title).toContain('Atualizado em');
   });
 
   test('rodapé usa o formato compartilhado (.card-footer) e fica fora da lista rolável', async () => {

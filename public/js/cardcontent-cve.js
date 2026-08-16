@@ -127,15 +127,15 @@ async function loadCardContentCveAssets(card) {
         <div class="asset-list">
           ${cveReportBlocksHtml || '<p style="padding:12px;color:var(--text-muted);">Nenhum item no relatório.</p>'}
         </div>
-        <div class="asset-footer card-footer">
-          Última varredura: ${lastScan || '—'}
-        </div>
+        <div class="asset-footer card-footer">${cardFooterHtml(lastScan)}</div>
       </div>
     `;
 
     const contentArea = cardElement.querySelector('.card-content');
     contentArea.innerHTML = '';
     contentArea.appendChild(wrapper);
+
+    watchCardFooterFit(cardElement.querySelector('.asset-footer'));
 
     initCveAssessmentDropdowns(cardElement, card.id, card.sourceItems);
 

@@ -105,16 +105,8 @@
   border: 1px solid rgba(245, 138, 138, 0.2);
 }
 
-/* Rodapé: aparência em .card-footer (main.css). Aqui apenas o espaçamento
-   entre o rótulo e a data. */
-.uptime-footer .uptime-label {
-  margin-right: 4px;
-}
-
-.uptime-label {
-  font-weight: 500;
-  color: var(--text-muted);
-}
+/* Rodapé: aparência e rótulo em .card-footer / .card-footer-label (main.css).
+   .uptime-footer permanece apenas como hook estrutural. */
 
 .uptime-meta {
   font-size: 0.75rem;

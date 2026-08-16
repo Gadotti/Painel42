@@ -77,7 +77,8 @@ describe('loadCardContentDynamicList — rodapé com data de alteração', () =>
     await loadCardContentDynamicList(CARD);
 
     const footer = el.querySelector('.dynamic-list-footer');
-    expect(footer.textContent).toBe('Atualizado em 10/03/2025 14:32');
+    expect(footer.querySelector('.card-footer-label').textContent).toBe('Atualizado em');
+    expect(footer.querySelector('.card-footer-date').textContent).toBe('10/03/2025 14:32');
     expect(footer.title).toContain('/dados/eventos.csv');
   });
 
@@ -89,7 +90,8 @@ describe('loadCardContentDynamicList — rodapé com data de alteração', () =>
     await loadCardContentDynamicList(CARD);
 
     const footer = el.querySelector('.dynamic-list-footer');
-    expect(footer.textContent).toMatch(/^Atualizado em \d{2}\/\d{2}\/\d{4} \d{2}:\d{2}$/);
+    expect(footer.querySelector('.card-footer-date').textContent)
+      .toMatch(/^\d{2}\/\d{2}\/\d{4} \d{2}:\d{2}$/);
   });
 
   test('mantém o rodapé fora da lista rolável', async () => {

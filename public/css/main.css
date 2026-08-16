@@ -180,6 +180,16 @@ body {
   display: none;
 }
 
+/* Rótulo "Atualizado em": ocultado por JS (fitCardFooter) quando o texto
+   completo não cabe na largura do card — sobra apenas a data/hora. */
+.card-footer-label {
+  margin-right: 4px;
+}
+
+.card-footer--compact .card-footer-label {
+  display: none;
+}
+
 .card-content::-webkit-scrollbar {
   width: 3px;
 }

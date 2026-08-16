@@ -8,6 +8,7 @@ beforeAll(() => {
   global.suppressedCardUpdates = new Set();
   global.fetch = jest.fn();
 
+  loadScript('helpers.js');            // cardFooterHtml, watchCardFooterFit
   loadScript('cardcontent-cve.js');
 });
 
@@ -88,7 +89,7 @@ describe('loadCardContentCveAssets — normalização de caminho', () => {
   });
 });
 
-// ─── loadCardContentCveAssets — rodapé "Última varredura" ───
+// ─── loadCardContentCveAssets — rodapé "Atualizado em" ───
 
 describe('loadCardContentCveAssets — rodapé', () => {
   function makeCveCard(id) {
@@ -120,7 +121,19 @@ describe('loadCardContentCveAssets — rodapé', () => {
     await loadCardContentCveAssets({ id: 'cve-footer', sourceItems: 'public/local-events/cve.json' });
 
     const footer = el.querySelector('.asset-footer');
-    expect(footer.textContent).toContain('Última varredura: 01/03/2025 08:00');
+    expect(footer.querySelector('.card-footer-date').textContent).toBe('01/03/2025 08:00');
+  });
+
+  test('rodapé usa a legenda padronizada "Atualizado em"', async () => {
+    const el = makeCveCard('cve-footer-label');
+    mockReport('01/03/2025 08:00');
+
+    await loadCardContentCveAssets({ id: 'cve-footer-label', sourceItems: 'public/local-events/cve.json' });
+
+    const footer = el.querySelector('.asset-footer');
+    expect(footer.querySelector('.card-footer-label').textContent).toBe('Atualizado em');
+    expect(footer.textContent).not.toContain('Última varredura');
+    expect(footer.title).toBe('Atualizado em 01/03/2025 08:00');
   });
 
   test('usa o formato de rodapé compartilhado (.card-footer)', async () => {

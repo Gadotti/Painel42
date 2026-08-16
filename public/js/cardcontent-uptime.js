@@ -67,16 +67,15 @@ async function loadCardContentUptime(card) {
       <div class="uptime-list">
         ${uptimeBlocksHtml}
       </div>
-      <div class="uptime-footer card-footer">
-        <span class="uptime-label">Última verificação:</span>
-        <span class="uptime-date">${formattedDate}</span>
-      </div>
+      <div class="uptime-footer card-footer">${cardFooterHtml(formattedDate)}</div>
     </div>
     `;
 
     const contentArea = cardElement.querySelector('.card-content');
     contentArea.innerHTML = '';
     contentArea.appendChild(wrapper);
+
+    watchCardFooterFit(cardElement.querySelector('.uptime-footer'));
   } catch (err) {
     console.error(`Erro ao carregar dados de uptime para ${card.id}:`, err);
   }

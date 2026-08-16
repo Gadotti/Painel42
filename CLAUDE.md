@@ -80,7 +80,7 @@ Local-first architecture: data produced externally by Python scripts (uptime, CV
 │       ├── cardsettings.js      # Settings modal (title, cols, rows, removal)
 │       ├── addcards.js          # Add card modal
 │       ├── socketListeners.js   # WebSocket connection and file subscriptions
-│       ├── helpers.js           # CSV parsing (semicolon-delimited)
+│       ├── helpers.js           # CSV parsing (semicolon-delimited) + shared card footer ("Atualizado em")
 │       ├── view-selector.js     # Custom dropdown synced to hidden <select>
 │       ├── cardeditor.js        # Card definitions editor modal (CRUD on cards-list.json)
 │       ├── manageviews.js       # Create/delete views modal
@@ -169,9 +169,9 @@ Python script → writes file (CSV/JSON)
 |---|---|---|
 | `chart` | Chart.js canvas | Inline JSON or Python via `/api/chart-data` |
 | `list` | `<ul>` event list | CSV via `/api/partial-csv` |
-| `uptime` | Status list + footer "Última verificação" | JSON (direct fetch from `public/`), date from `lastChecked` |
-| `cve-assets` | Collapsible table + footer "Última varredura" | JSON (direct fetch from `public/`), date from `last_scan` |
-| `dynamic-list` | Configurable `<ul>` list + footer with the source file's last-modified date | CSV via `/api/partial-csv` (custom separator), mtime via `/api/file-info` |
+| `uptime` | Status list + footer "Atualizado em" | JSON (direct fetch from `public/`), date from `lastChecked` |
+| `cve-assets` | Collapsible table + footer "Atualizado em" | JSON (direct fetch from `public/`), date from `last_scan` |
+| `dynamic-list` | Configurable `<ul>` list + footer "Atualizado em" | CSV via `/api/partial-csv` (custom separator), mtime via `/api/file-info` |
 | `metric` | KPI numeric counter | Aggregated from source card files |
 | `frame` | `<iframe>` with zoom | URL or local HTML |
 
@@ -255,6 +255,8 @@ The `dropdown-in` keyframe is defined in `drawer.css` and is globally available.
 - **Font:** `'Segoe UI', system-ui, -apple-system, sans-serif` (not `Arial`).
 - **Scrollbars:** `3px` width, thumb `rgba(255,255,255,0.12)`, radius `2px`.
 - **Card footers** (`dynamic-list`, `uptime`, `cve-assets`): the shared `.card-footer` class in `main.css` owns the look (right-aligned, monospace, `--text-muted`, top border, `flex: 0 0 auto`). Card-specific classes (`.dynamic-list-footer`, `.uptime-footer`, `.asset-footer`) are JS/structural hooks only — do not restyle them per card. To keep the footer out of the scroll area, the card wrapper is `display: flex; flex-direction: column` and only the list region gets `flex: 1 1 auto; min-height: 0; overflow-y: auto`.
+  - **Single caption: "Atualizado em"** for every card type. Markup comes from `cardFooterHtml(dateText)` in `helpers.js` (`.card-footer-label` + `.card-footer-date`); use `setCardFooterDate(footer, dateText, title?)` when filling an existing footer element, or `cardFooterHtml()` inside a template followed by `watchCardFooterFit(footer)` after insertion.
+  - **Responsive caption:** `fitCardFooter()` compares `scrollWidth` to `clientWidth` and adds `.card-footer--compact` (hides the label, leaving only the date/time) when the full text would overflow. A `ResizeObserver` re-evaluates on card resize. The complete text stays available via the footer's `title`.
 - **Collapsibles:** padding on inner children, never on the element with `max-height: 0`.
 - **`overflow: hidden`** only on containers with `max-height` transition, never on parents with children toggled via `display: block`.
 

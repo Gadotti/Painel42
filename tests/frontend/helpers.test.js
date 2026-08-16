@@ -63,3 +63,116 @@ describe('csvToJson', () => {
     expect(result[0]).toEqual({ name: 'Alice', desc: 'Desc com espaco' });
   });
 });
+
+// ─── rodapé de card: legenda "Atualizado em" + modo compacto ───
+
+describe('cardFooterHtml', () => {
+  test('monta rótulo e data em spans separados', () => {
+    const el = document.createElement('div');
+    el.innerHTML = cardFooterHtml('10/03/2025 14:32');
+
+    expect(el.querySelector('.card-footer-label').textContent).toBe('Atualizado em');
+    expect(el.querySelector('.card-footer-date').textContent).toBe('10/03/2025 14:32');
+  });
+
+  test('usa "—" quando não há data', () => {
+    const el = document.createElement('div');
+    el.innerHTML = cardFooterHtml('');
+    expect(el.querySelector('.card-footer-date').textContent).toBe('—');
+  });
+});
+
+describe('setCardFooterDate', () => {
+  function makeFooter() {
+    const footer = document.createElement('div');
+    footer.className = 'card-footer';
+    document.body.appendChild(footer);
+    return footer;
+  }
+
+  afterEach(() => { document.body.innerHTML = ''; });
+
+  test('preenche rótulo, data e title padrão', () => {
+    const footer = makeFooter();
+    setCardFooterDate(footer, '10/03/2025 14:32');
+
+    expect(footer.querySelector('.card-footer-label').textContent).toBe('Atualizado em');
+    expect(footer.title).toBe('Atualizado em 10/03/2025 14:32');
+  });
+
+  test('respeita um title personalizado', () => {
+    const footer = makeFooter();
+    setCardFooterDate(footer, '10/03/2025 14:32', 'Última alteração de /dados/x.csv');
+
+    expect(footer.title).toBe('Última alteração de /dados/x.csv');
+  });
+
+  test('esvazia o rodapé (e limpa title/compacto) sem data', () => {
+    const footer = makeFooter();
+    setCardFooterDate(footer, '10/03/2025 14:32');
+    footer.classList.add('card-footer--compact');
+
+    setCardFooterDate(footer, '');
+
+    expect(footer.textContent).toBe('');
+    expect(footer.hasAttribute('title')).toBe(false);
+    expect(footer.classList.contains('card-footer--compact')).toBe(false);
+  });
+
+  test('não quebra com rodapé inexistente', () => {
+    expect(() => setCardFooterDate(null, '10/03/2025 14:32')).not.toThrow();
+  });
+});
+
+describe('fitCardFooter', () => {
+  function makeFooter(scrollWidth, clientWidth) {
+    const footer = document.createElement('div');
+    footer.className = 'card-footer';
+    footer.innerHTML = cardFooterHtml('10/03/2025 14:32');
+    // jsdom não faz layout: as medidas são simuladas.
+    Object.defineProperty(footer, 'scrollWidth', { get: () => scrollWidth });
+    Object.defineProperty(footer, 'clientWidth', { get: () => clientWidth });
+    document.body.appendChild(footer);
+    return footer;
+  }
+
+  afterEach(() => { document.body.innerHTML = ''; });
+
+  test('mantém o rótulo quando o texto completo cabe', () => {
+    const footer = makeFooter(120, 200);
+    fitCardFooter(footer);
+    expect(footer.classList.contains('card-footer--compact')).toBe(false);
+  });
+
+  test('oculta o rótulo quando o texto completo não cabe', () => {
+    const footer = makeFooter(220, 120);
+    fitCardFooter(footer);
+    expect(footer.classList.contains('card-footer--compact')).toBe(true);
+  });
+
+  test('volta ao formato completo quando o card cresce', () => {
+    const footer = document.createElement('div');
+    footer.className = 'card-footer';
+    footer.innerHTML = cardFooterHtml('10/03/2025 14:32');
+    let clientWidth = 120;
+    Object.defineProperty(footer, 'scrollWidth', { get: () => 220 });
+    Object.defineProperty(footer, 'clientWidth', { get: () => clientWidth });
+    document.body.appendChild(footer);
+
+    fitCardFooter(footer);
+    expect(footer.classList.contains('card-footer--compact')).toBe(true);
+
+    clientWidth = 300;
+    fitCardFooter(footer);
+    expect(footer.classList.contains('card-footer--compact')).toBe(false);
+  });
+
+  test('ignora rodapés sem rótulo', () => {
+    const footer = document.createElement('div');
+    footer.className = 'card-footer';
+    document.body.appendChild(footer);
+
+    expect(() => fitCardFooter(footer)).not.toThrow();
+    expect(footer.classList.contains('card-footer--compact')).toBe(false);
+  });
+});

@@ -68,7 +68,7 @@ async function updateDynamicListFooter(cardElement, sourceFile) {
   if (!footer) return;
 
   if (!sourceFile) {
-    footer.textContent = '';
+    setCardFooterDate(footer, '');
     return;
   }
 
@@ -80,12 +80,10 @@ async function updateDynamicListFooter(cardElement, sourceFile) {
     const date = new Date(info.mtime);
     if (isNaN(date.getTime())) throw new Error('mtime inválido');
 
-    footer.textContent = `Atualizado em ${formatDateTimeBR(date)}`;
-    footer.title = `Última alteração de ${sourceFile}`;
+    setCardFooterDate(footer, formatDateTimeBR(date), `Última alteração de ${sourceFile}`);
   } catch (err) {
     console.error('Erro ao obter a data de alteração do arquivo:', err);
-    footer.textContent = '';
-    footer.removeAttribute('title');
+    setCardFooterDate(footer, '');
   }
 }
 
