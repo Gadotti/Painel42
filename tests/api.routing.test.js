@@ -22,19 +22,33 @@ jest.mock('fs', () => ({
 const ROOT = '/fake/root';
 const app  = createApp({ rootDir: ROOT, PYTHON_CMD: 'python' });
 
+// /fake/root/public/index.html não existe, então o sendFile do fallback falha de
+// um jeito que depende do SO: 500 no Windows (caminho sem letra de drive) e 404
+// no Linux (arquivo não encontrado). Por isso o status não diz se a rota casou.
+// O que distingue é a mensagem: rota inexistente gera o "Cannot GET <rota>" do Express.
+function expectRouteMatched(res) {
+  expect(res.text).not.toMatch(/Cannot GET/);
+}
+
 describe('Roteamento — SPA fallback /:view? (parâmetro opcional)', () => {
   afterEach(() => jest.clearAllMocks());
 
   test('raiz "/" é capturada pelo fallback (parâmetro opcional ausente)', async () => {
     fs.existsSync.mockReturnValue(true);
     const res = await request(app).get('/');
-    expect(res.status).not.toBe(404);
+    expectRouteMatched(res);
   });
 
   test('segmento único "/infra" é capturado pelo fallback', async () => {
     fs.existsSync.mockReturnValue(true);
     const res = await request(app).get('/infra');
-    expect(res.status).not.toBe(404);
+    expectRouteMatched(res);
+  });
+
+  test('dois segmentos não casam com /:view? (controle do teste acima)', async () => {
+    const res = await request(app).get('/infra/extra');
+    expect(res.status).toBe(404);
+    expect(res.text).toMatch(/Cannot GET/);
   });
 });
 

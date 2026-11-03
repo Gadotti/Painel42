@@ -36,12 +36,10 @@ describe('SPA Fallback GET /:view?', () => {
     // sendFile precisará do fs real — simulamos com mock básico
     fs.existsSync.mockReturnValue(true);
 
-    // O sendFile vai tentar abrir o arquivo; mockamos o resultado
-    // Aqui apenas verificamos que a rota não retorna 404
-    // (o sendFile pode falhar pois /fake/root/public/index.html não existe,
-    //  mas o teste verifica que o handler correto foi acionado)
+    // O sendFile falha porque /fake/root/public/index.html não existe: 500 no
+    // Windows e 404 no Linux. Por isso o teste não olha o status, e sim se o
+    // handler foi acionado: rota inexistente gera o "Cannot GET <rota>" do Express.
     const res = await request(app).get('/qualquer-view');
-    // Qualquer status que não seja 404 significa que a rota foi capturada
-    expect(res.status).not.toBe(404);
+    expect(res.text).not.toMatch(/Cannot GET/);
   });
 });
