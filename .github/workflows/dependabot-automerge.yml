@@ -1,0 +1,131 @@
+# Gerado por pr-monitor. Não edite à mão: ajuste repos.json e rode "npm run setup" de novo.
+# Merge automático: patch, minor em docker, github-actions, npm
+# O merge só acontece depois que os testes abaixo E todos os outros checks do PR passam.
+name: Dependabot - testes e auto-merge
+
+on:
+  pull_request:
+
+# Os jobs de teste executam o código novo das dependências: só leitura, sem secrets.
+permissions:
+  contents: read
+
+concurrency:
+  group: dependabot-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  node:
+    name: "Node (.)"
+    if: github.event.pull_request.user.login == 'dependabot[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: ".nvmrc"
+      - name: Instalar dependências
+        run: "npm ci"
+      - name: Testes
+        run: "npm test"
+
+  docker:
+    name: Docker (${{ matrix.file }})
+    if: github.event.pull_request.user.login == 'dependabot[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {"file":"Dockerfile","context":"."}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Build da imagem (sem publicar)
+        run: docker build --pull -f "$DOCKERFILE" "$CONTEXT"
+        env:
+          DOCKERFILE: ${{ matrix.file }}
+          CONTEXT: ${{ matrix.context }}
+
+  automerge:
+    name: Merge automático
+    needs: [node, docker]
+    if: github.event.pull_request.user.login == 'dependabot[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    # Único job com escrita; não faz checkout nem executa código das dependências
+    permissions:
+      contents: write       # fazer o merge do PR
+      pull-requests: write  # fazer o merge e aplicar a label de revisão
+      issues: write         # criar a label de revisão, se ainda não existir
+      actions: read         # listar os outros workflows do mesmo commit
+      checks: read          # ler checks de outros apps
+      statuses: read        # ler commit statuses (ex.: Netlify)
+    env:
+      PR_URL: ${{ github.event.pull_request.html_url }}
+      HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+    steps:
+      - name: Ler metadados do Dependabot
+        id: meta
+        uses: dependabot/fetch-metadata@25dd0e34f4fe68f24cc83900b1fe3fe149efef98 # v3.1.0
+      - name: Aplicar a política de merge
+        id: policy
+        env:
+          MERGE: ${{ contains(fromJSON('["version-update:semver-patch","version-update:semver-minor"]'), steps.meta.outputs.update-type) && contains(fromJSON('["docker","github-actions","github_actions","npm","npm_and_yarn"]'), steps.meta.outputs.package-ecosystem) }}
+          UPDATE_TYPE: ${{ steps.meta.outputs.update-type }}
+          ECOSYSTEM: ${{ steps.meta.outputs.package-ecosystem }}
+        run: |
+          echo "Atualização $UPDATE_TYPE em $ECOSYSTEM; merge automático: $MERGE"
+          echo "merge=$MERGE" >> "$GITHUB_OUTPUT"
+      - name: Aguardar os demais checks do PR
+        if: steps.policy.outputs.merge == 'true'
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const ref = process.env.HEAD_SHA;
+            const FAILED = ['failure', 'timed_out', 'action_required', 'startup_failure', 'cancelled'];
+            const deadline = Date.now() + 60 * 60000;
+            for (;;) {
+              // Workflows do Actions, exceto este; vale a execução mais recente de cada um
+              const runs = await github.paginate(github.rest.actions.listWorkflowRunsForRepo, { owner, repo, head_sha: ref, per_page: 100 });
+              const latest = new Map();
+              for (const r of runs) {
+                if (r.path.split('@')[0] === '.github/workflows/dependabot-automerge.yml') continue;
+                const prev = latest.get(r.workflow_id);
+                if (!prev || r.run_number > prev.run_number) latest.set(r.workflow_id, r);
+              }
+              // Checks de outros apps (os do Actions já estão cobertos acima) e commit statuses
+              const checks = await github.paginate(github.rest.checks.listForRef, { owner, repo, ref, per_page: 100 });
+              const { data: combined } = await github.rest.repos.getCombinedStatusForRef({ owner, repo, ref });
+              const items = [
+                ...[...latest.values()].map((r) => ({ name: r.name, done: r.status === 'completed', failed: FAILED.includes(r.conclusion) })),
+                ...checks.filter((c) => c.app?.slug !== 'github-actions').map((c) => ({ name: c.name, done: c.status === 'completed', failed: FAILED.includes(c.conclusion) })),
+                ...combined.statuses.map((s) => ({ name: s.context, done: s.state !== 'pending', failed: s.state === 'failure' || s.state === 'error' })),
+              ];
+              const failed = items.filter((i) => i.failed).map((i) => i.name);
+              if (failed.length) return core.setFailed('Outros checks do PR falharam: ' + failed.join(', '));
+              const pending = items.filter((i) => !i.done).map((i) => i.name);
+              if (!pending.length) return core.info('Nenhum outro check pendente (' + items.length + ' verificados).');
+              if (Date.now() > deadline) return core.setFailed('Tempo esgotado aguardando: ' + pending.join(', '));
+              core.info('Aguardando: ' + pending.join(', '));
+              await new Promise((resolve) => setTimeout(resolve, 30 * 1000));
+            }
+      - name: Fazer merge
+        if: steps.policy.outputs.merge == 'true'
+        run: gh pr merge "$PR_URL" --squash --match-head-commit "$HEAD_SHA"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Sinalizar para revisão manual
+        if: steps.policy.outputs.merge != 'true'
+        continue-on-error: true
+        run: |
+          gh label create "revisao-manual" --repo "$GITHUB_REPOSITORY" --color d93f0b --description "Atualização do Dependabot que precisa de revisão humana" 2>/dev/null || true
+          gh pr edit "$PR_URL" --add-label "revisao-manual"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
