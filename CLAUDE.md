@@ -42,7 +42,8 @@ Local-first architecture: data produced externally by Python scripts (uptime, CV
 │       ├── cardcontent-dynamic-list.test.js # footer with the source file's last-modified date
 │       ├── cardeditor.test.js         # updateSourceRowVisibility, openMetricEditor
 │       ├── uptimeeditor.test.js       # custom dropdown (open/close/select), modal lifecycle
-│       └── healthcheck.test.js        # Health check modal open/close/render
+│       ├── healthcheck.test.js        # Health check modal open/close/render
+│       └── login.test.js              # login.js: ?next= redirect sanitization (XSS/open redirect), fetch patch, SPA auth bootstrap
 │
 ├── public/
 │   ├── index.html               # SPA shell — scripts loaded in strict order

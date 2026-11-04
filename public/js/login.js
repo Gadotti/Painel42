@@ -9,6 +9,23 @@
     return localStorage.getItem(LS_TOKEN);
   }
 
+  // Validates the ?next= redirect target used after login.
+  // Only same-origin paths are allowed — blocks javascript: URLs (XSS) and
+  // external destinations (open redirect), including variants the browser
+  // normalizes into "//host" ("/\host", tab/newline-separated slashes).
+  function sanitizeNextPath(next) {
+    if (typeof next !== 'string') return '/';
+    var trimmed = next.trim();
+    if (trimmed.charAt(0) !== '/' || trimmed.charAt(1) === '/' || trimmed.charAt(1) === '\\') return '/';
+    try {
+      // Absolute href (not pathname) so "/.//host" stays on this origin
+      var url = new URL(trimmed, window.location.origin);
+      return url.origin === window.location.origin ? url.href : '/';
+    } catch (e) {
+      return '/';
+    }
+  }
+
   function clearAuth() {
     localStorage.removeItem(LS_TOKEN);
     localStorage.removeItem(LS_ROLE);
@@ -82,7 +99,7 @@
           localStorage.setItem(LS_NAME,  result.data.name);
           var params = new URLSearchParams(window.location.search);
           var next   = params.get('next') || '/';
-          window.location.href = next;
+          window.location.href = sanitizeNextPath(next);
         })
         .catch(function () {
           errorEl.textContent = 'Erro de comunicação com o servidor.';
