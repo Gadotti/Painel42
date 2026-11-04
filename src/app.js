@@ -185,7 +185,7 @@ function createApp(config = {}) {
       .replace(/[^a-z0-9\s-]/g, '')      // remove caracteres especiais
       .replace(/\s+/g, '-')              // espaços → hífens
       .replace(/-+/g, '-')              // hífens múltiplos → um
-      .replace(/^-+|-+$/g, '');          // remove hífens nas bordas
+      .replace(/^-|-$/g, '');            // remove hífen nas bordas (já colapsados acima; sem quantificador → sem ReDoS)
   }
 
   // ------------------------------------------------------------------ GET /api/layout/:viewName
@@ -239,7 +239,7 @@ function createApp(config = {}) {
   app.post('/api/views', requireRole('editor'), (req, res) => {
     const { title } = req.body;
 
-    if (!title || !title.trim()) {
+    if (typeof title !== 'string' || !title.trim()) {
       return res.status(400).json({ error: 'O campo "title" é obrigatório.' });
     }
 

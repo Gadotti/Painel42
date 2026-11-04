@@ -70,6 +70,68 @@ describe('POST /api/views', () => {
     expect(res.status).toBe(400);
   });
 
+  test.each([
+    ['número',  123],
+    ['booleano', true],
+    ['array',   ['Infra']],
+    ['objeto',  { nome: 'Infra' }],
+  ])('retorna 400 (e não 500) quando title é %s', async (_, title) => {
+    const res = await request(app)
+      .post('/api/views')
+      .send({ title })
+      .set('Content-Type', 'application/json');
+
+    expect(res.status).toBe(400);
+    expect(res.body).toHaveProperty('error');
+    expect(fs.writeFile).not.toHaveBeenCalled();
+  });
+
+  test.each([
+    ['--Infra Nova--',                     'infra-nova'],
+    ['  Segurança  da  Informação ',       'seguranca-da-informacao'],
+    ['Rede --- Core',                      'rede-core'],
+    ['- Financeiro 2026! -',               'financeiro-2026'],
+    ['@@Visão_Especial##',                 'visaoespecial'],
+  ])('slug de %j é %j (hífens colapsados e removidos das bordas)', async (title, slug) => {
+    fs.readFile.mockImplementation((p, enc, cb) => cb(null, JSON.stringify(VIEWS_STUB)));
+    fs.writeFile.mockImplementation((p, data, enc, cb) => cb(null));
+
+    const res = await request(app)
+      .post('/api/views')
+      .send({ title })
+      .set('Content-Type', 'application/json');
+
+    expect(res.status).toBe(201);
+    expect(res.body.value).toBe(slug);
+  });
+
+  test('retorna 400 quando o título só tem hífens/símbolos (slug vazio)', async () => {
+    const res = await request(app)
+      .post('/api/views')
+      .send({ title: '--- !!! ---' })
+      .set('Content-Type', 'application/json');
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/Título inválido/);
+  });
+
+  test('título longo com muitos hífens não degrada o tempo de resposta (ReDoS)', async () => {
+    fs.readFile.mockImplementation((p, enc, cb) => cb(null, JSON.stringify(VIEWS_STUB)));
+    fs.writeFile.mockImplementation((p, data, enc, cb) => cb(null));
+
+    // ~100 kB (limite padrão do express.json): hífens no meio, sem chegar às bordas
+    const title = 'a' + '-'.repeat(99_000) + 'b';
+    const start = Date.now();
+    const res = await request(app)
+      .post('/api/views')
+      .send({ title })
+      .set('Content-Type', 'application/json');
+
+    expect(res.status).toBe(201);
+    expect(res.body.value).toBe('a-b');
+    expect(Date.now() - start).toBeLessThan(1000);
+  });
+
   test('retorna 409 quando visão com mesmo valor já existe', async () => {
     fs.readFile.mockImplementation((p, enc, cb) => cb(null, JSON.stringify(VIEWS_STUB)));
 
@@ -236,5 +298,22 @@ describe('DELETE /api/views/:viewName', () => {
     const res = await request(app).delete('/api/views/infra');
 
     expect(res.status).toBe(500);
+  });
+});
+// ============================================================ slugify backend × frontend
+describe('slugify — cópias em src/app.js e public/js/manageviews.js', () => {
+  // CLAUDE.md: as duas implementações devem ficar idênticas
+  function slugifyBody(relPath) {
+    const { readFileSync } = jest.requireActual('fs');
+    const src = readFileSync(require('path').join(__dirname, '..', relPath), 'utf8');
+    const m = src.match(/function slugify\(str\) \{([\s\S]*?)\n\s*\}/);
+    if (!m) throw new Error('slugify não encontrado em ' + relPath);
+    return m[1]
+      .replace(/\/\/[^\n]*$/gm, '')   // comentários de linha
+      .replace(/\s+/g, '');          // espaços/quebras
+  }
+
+  test('têm a mesma cadeia de transformações', () => {
+    expect(slugifyBody('public/js/manageviews.js')).toBe(slugifyBody('src/app.js'));
   });
 });

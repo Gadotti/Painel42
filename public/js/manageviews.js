@@ -187,6 +187,6 @@
       .replace(/[^a-z0-9\s-]/g, '')
       .replace(/\s+/g, '-')
       .replace(/-+/g, '-')
-      .replace(/^-+|-+$/g, '');
+      .replace(/^-|-$/g, ''); // hífens já colapsados acima — mantém igual ao slugify do src/app.js
   }
 })();
