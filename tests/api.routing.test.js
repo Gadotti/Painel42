@@ -11,13 +11,18 @@ const request = require('supertest');
 const fs      = require('fs');
 const { createApp } = require('../src/app');
 
-jest.mock('fs', () => ({
-  ...jest.requireActual('fs'),
-  existsSync:       jest.fn(),
-  readFile:         jest.fn(),
-  writeFile:        jest.fn(),
-  createReadStream: jest.fn(),
-}));
+jest.mock('fs', () => {
+  const actual = jest.requireActual('fs');
+  return {
+    ...actual,
+    existsSync:       jest.fn(),
+    readFile:         jest.fn(),
+    writeFile:        jest.fn(),
+    createReadStream: jest.fn(),
+    // realpath é usado na validação de ?file= (somente public/local-*)
+    promises: { ...actual.promises, realpath: jest.fn() },
+  };
+});
 
 const ROOT = '/fake/root';
 const app  = createApp({ rootDir: ROOT, PYTHON_CMD: 'python' });
@@ -81,21 +86,25 @@ describe('Roteamento — query string (qs)', () => {
   afterEach(() => jest.clearAllMocks());
 
   test('parseia múltiplos parâmetros file e limit', async () => {
-    fs.existsSync.mockReturnValue(true);
+    fs.promises.realpath.mockImplementation(async p => p);
     const { Readable } = require('stream');
     const csv = ['h', 'a', 'b', 'c'].join('\n');
     fs.createReadStream.mockReturnValue(Readable.from([csv]));
 
-    const res = await request(app).get('/api/partial-csv?file=/data/x.csv&limit=2');
+    const res = await request(app).get('/api/partial-csv?file=public/local-events/x.csv&limit=2');
     expect(res.status).toBe(200);
     expect(res.headers['content-type']).toMatch(/text\/csv/);
+    expect(res.text).toBe('h\nb\nc');
   });
 
   test('parâmetro "file" com caracteres percent-encoded é decodificado', async () => {
-    fs.existsSync.mockReturnValue(false);
+    fs.promises.realpath.mockRejectedValue(Object.assign(new Error('ENOENT'), { code: 'ENOENT' }));
     // %2F = "/" ; o handler deve receber o caminho decodificado e responder 404 (arquivo ausente)
-    const res = await request(app).get('/api/csv-count?file=%2Fdata%2Fevents.csv');
+    const res = await request(app).get('/api/csv-count?file=public%2Flocal-events%2Fevents.csv');
     expect(res.status).toBe(404);
     expect(res.body.error).toMatch(/não encontrado/);
+    expect(fs.promises.realpath).toHaveBeenCalledWith(
+      require('path').resolve(ROOT, 'public/local-events/events.csv')
+    );
   });
 });

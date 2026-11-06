@@ -1,11 +1,11 @@
 'use strict';
 
 // Rate limiting das rotas de gravação (writeLimiter em src/app.js).
-// Só rotas de escrita + backup são limitadas; leituras de cards e chart-data não.
+// Só rotas de escrita + backup são limitadas; leituras de cards não.
+// chart-data usa o readLimiter (coberto em api.chartdata.test.js).
 
 const request = require('supertest');
 const fs      = require('fs');
-const { EventEmitter } = require('events');
 const { createApp } = require('../src/app');
 
 jest.mock('fs', () => ({
@@ -32,17 +32,6 @@ const WRITE_ROUTES = [
   ['post',   '/api/cve-assessment?file=public/local-events/cve.json'],
   ['get',    '/api/backup'],
 ];
-
-function fakePython() {
-  const p = new EventEmitter();
-  p.stdout = new EventEmitter();
-  p.stderr = new EventEmitter();
-  process.nextTick(() => {
-    p.stdout.emit('data', '{"labels":[],"data":[]}');
-    p.emit('close', 0);
-  });
-  return p;
-}
 
 beforeEach(() => {
   jest.clearAllMocks();
@@ -92,18 +81,6 @@ describe('rotas de leitura não são limitadas', () => {
       const res = await request(app)[method](url);
       expect(res.status).not.toBe(429);
     }
-  });
-
-  test('POST /api/chart-data (gráficos) não é limitado', async () => {
-    const spawn = jest.fn().mockImplementation(() => fakePython());
-    const app = createApp({ rootDir: ROOT, spawn, writeRateLimit: { limit: 1 } });
-    for (let i = 0; i < 5; i++) {
-      const res = await request(app)
-        .post('/api/chart-data')
-        .send({ scriptPath: 'scripts/count_events_by_weekday.py' });
-      expect(res.status).toBe(200);
-    }
-    expect(spawn).toHaveBeenCalledTimes(5);
   });
 
   test('leituras não consomem a cota de gravação', async () => {

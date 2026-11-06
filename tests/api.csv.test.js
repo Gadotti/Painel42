@@ -5,13 +5,18 @@ const fs        = require('fs');
 const { Readable } = require('stream');
 const { createApp } = require('../src/app');
 
-jest.mock('fs', () => ({
-  ...jest.requireActual('fs'),
-  existsSync:       jest.fn(),
-  readFile:         jest.fn(),
-  writeFile:        jest.fn(),
-  createReadStream: jest.fn(),
-}));
+jest.mock('fs', () => {
+  const actual = jest.requireActual('fs');
+  return {
+    ...actual,
+    existsSync:       jest.fn(),
+    readFile:         jest.fn(),
+    writeFile:        jest.fn(),
+    createReadStream: jest.fn(),
+    // realpath valida ?file= (somente public/local-*) e confirma a existência
+    promises: { ...actual.promises, realpath: jest.fn() },
+  };
+});
 
 const ROOT = '/fake/root';
 const app  = createApp({ rootDir: ROOT, PYTHON_CMD: 'python' });
@@ -35,16 +40,16 @@ describe('GET /api/partial-csv', () => {
   });
 
   test('retorna 404 quando o arquivo não existe', async () => {
-    fs.existsSync.mockReturnValue(false);
+    fs.promises.realpath.mockRejectedValue(Object.assign(new Error('ENOENT'), { code: 'ENOENT' }));
 
-    const res = await request(app).get('/api/partial-csv?file=/data/events.csv');
+    const res = await request(app).get('/api/partial-csv?file=public/local-events/events.csv');
 
     expect(res.status).toBe(404);
     expect(res.body.error).toMatch(/não encontrado/);
   });
 
   test('retorna CSV com header + últimas N linhas', async () => {
-    fs.existsSync.mockReturnValue(true);
+    fs.promises.realpath.mockImplementation(async p => p);
 
     const csvContent = [
       'timestamp,event',
@@ -56,7 +61,7 @@ describe('GET /api/partial-csv', () => {
     fs.createReadStream.mockReturnValue(makeStream(csvContent));
 
     const res = await request(app)
-      .get('/api/partial-csv?file=/data/events.csv&limit=2');
+      .get('/api/partial-csv?file=public/local-events/events.csv&limit=2');
 
     expect(res.status).toBe(200);
     expect(res.headers['content-type']).toMatch(/text\/csv/);
@@ -69,14 +74,14 @@ describe('GET /api/partial-csv', () => {
   });
 
   test('respeita o limite padrão de 10 linhas quando limit não é informado', async () => {
-    fs.existsSync.mockReturnValue(true);
+    fs.promises.realpath.mockImplementation(async p => p);
 
     const dataLines = Array.from({ length: 20 }, (_, i) => `2024-01-${String(i+1).padStart(2,'0')},event-${i}`);
     const csvContent = ['timestamp,event', ...dataLines].join('\n');
 
     fs.createReadStream.mockReturnValue(makeStream(csvContent));
 
-    const res = await request(app).get('/api/partial-csv?file=/data/events.csv');
+    const res = await request(app).get('/api/partial-csv?file=public/local-events/events.csv');
 
     expect(res.status).toBe(200);
     const lines = res.text.split('\n').filter(Boolean);
@@ -85,12 +90,12 @@ describe('GET /api/partial-csv', () => {
   });
 
   test('inclui sempre o header mesmo quando há poucas linhas de dados', async () => {
-    fs.existsSync.mockReturnValue(true);
+    fs.promises.realpath.mockImplementation(async p => p);
 
     const csvContent = 'col1,col2\nval1,val2';
     fs.createReadStream.mockReturnValue(makeStream(csvContent));
 
-    const res = await request(app).get('/api/partial-csv?file=/data/events.csv&limit=10');
+    const res = await request(app).get('/api/partial-csv?file=public/local-events/events.csv&limit=10');
 
     expect(res.status).toBe(200);
     expect(res.text).toContain('col1,col2');
@@ -98,14 +103,14 @@ describe('GET /api/partial-csv', () => {
   });
 
   test('retorna 500 quando o stream lança exceção', async () => {
-    fs.existsSync.mockReturnValue(true);
+    fs.promises.realpath.mockImplementation(async p => p);
 
     const brokenStream = new Readable({
       read() { this.destroy(new Error('stream error')); },
     });
     fs.createReadStream.mockReturnValue(brokenStream);
 
-    const res = await request(app).get('/api/partial-csv?file=/data/events.csv');
+    const res = await request(app).get('/api/partial-csv?file=public/local-events/events.csv');
 
     expect(res.status).toBe(500);
   });
@@ -121,37 +126,37 @@ describe('GET /api/csv-count', () => {
   });
 
   test('retorna 404 quando o arquivo não existe', async () => {
-    fs.existsSync.mockReturnValue(false);
-    const res = await request(app).get('/api/csv-count?file=/data/events.csv');
+    fs.promises.realpath.mockRejectedValue(Object.assign(new Error('ENOENT'), { code: 'ENOENT' }));
+    const res = await request(app).get('/api/csv-count?file=public/local-events/events.csv');
     expect(res.status).toBe(404);
     expect(res.body.error).toMatch(/não encontrado/);
   });
 
   test('retorna contagem correta de linhas excluindo o header', async () => {
-    fs.existsSync.mockReturnValue(true);
+    fs.promises.realpath.mockImplementation(async p => p);
     const csvContent = ['timestamp;event', 'a;b', 'c;d', 'e;f'].join('\n');
     fs.createReadStream.mockReturnValue(makeStream(csvContent));
 
-    const res = await request(app).get('/api/csv-count?file=/data/events.csv');
+    const res = await request(app).get('/api/csv-count?file=public/local-events/events.csv');
     expect(res.status).toBe(200);
     expect(res.body.count).toBe(3);
   });
 
   test('não conta linhas vazias', async () => {
-    fs.existsSync.mockReturnValue(true);
+    fs.promises.realpath.mockImplementation(async p => p);
     const csvContent = ['header', 'row1', '', 'row2', ''].join('\n');
     fs.createReadStream.mockReturnValue(makeStream(csvContent));
 
-    const res = await request(app).get('/api/csv-count?file=/data/events.csv');
+    const res = await request(app).get('/api/csv-count?file=public/local-events/events.csv');
     expect(res.status).toBe(200);
     expect(res.body.count).toBe(2);
   });
 
   test('retorna 0 para arquivo com apenas o header', async () => {
-    fs.existsSync.mockReturnValue(true);
+    fs.promises.realpath.mockImplementation(async p => p);
     fs.createReadStream.mockReturnValue(makeStream('header\n'));
 
-    const res = await request(app).get('/api/csv-count?file=/data/events.csv');
+    const res = await request(app).get('/api/csv-count?file=public/local-events/events.csv');
     expect(res.status).toBe(200);
     expect(res.body.count).toBe(0);
   });

@@ -16,6 +16,8 @@ const { verifyPassword, createSession, validateSession, destroySession, loadSess
  * @param {string}   config.PYTHON_CMD - executável python (ex: "python3")
  * @param {Function} config.spawn      - child_process.spawn (injetável para testes)
  * @param {object}   [config.writeRateLimit] - { windowMs, limit } das rotas de gravação (padrão: 120 req/min por IP)
+ * @param {object}   [config.readRateLimit]  - { windowMs, limit } das rotas de dados de cards (padrão: 600 req/min por IP)
+ * @param {number}   [config.chartScriptTimeoutMs] - tempo máximo de execução de um script de gráfico (padrão: 30000)
  */
 function createApp(config = {}) {
   const rootDir    = config.rootDir    || path.resolve(__dirname, '..');
@@ -23,6 +25,8 @@ function createApp(config = {}) {
   // Injeção de dependência: permite substituir em testes sem jest.mock()
   const spawnFn    = config.spawn      || require('child_process').spawn;
   const writeRateLimit = Object.assign({ windowMs: 60 * 1000, limit: 120 }, config.writeRateLimit);
+  const readRateLimit  = Object.assign({ windowMs: 60 * 1000, limit: 600 }, config.readRateLimit);
+  const chartScriptTimeoutMs = config.chartScriptTimeoutMs || 30 * 1000;
 
   const CONFIGS_PATH   = path.join(rootDir, 'configs');
   const VIEWS_PATH     = path.join(CONFIGS_PATH, 'views.json');
@@ -45,6 +49,15 @@ function createApp(config = {}) {
 
   // Block direct static access to /logs/* — content is only available via /api/logs (authenticated)
   app.use('/logs', (req, res) => res.status(403).end());
+
+  // Runtime data (public/local-*/ and rootDir/local-pages) requires login when auth is enabled.
+  // Accepts the Bearer header (fetch) or the HttpOnly session cookie (iframes, links).
+  app.use((req, res, next) => {
+    if (!isProtectedStaticPath(req.path)) return next();
+    if (!isAuthEnabled()) return next();
+    if (validateSession(getToken(req) || getCookieToken(req))) return next();
+    return res.status(401).json({ error: 'Não autorizado.' });
+  });
 
   app.use(express.static(path.join(rootDir, 'public')));
   app.use(express.json());
@@ -72,6 +85,164 @@ function createApp(config = {}) {
     return null;
   }
 
+  // Session cookie — mirrors the Bearer token so iframes/links can load protected
+  // static data. Accepted ONLY by the static data guard, never by /api (no CSRF surface).
+  const SESSION_COOKIE = 'painel_session';
+
+  function getCookieToken(req) {
+    const header = req.headers.cookie || '';
+    for (const part of header.split(';')) {
+      const idx = part.indexOf('=');
+      if (idx === -1) continue;
+      if (part.slice(0, idx).trim() === SESSION_COOKIE) {
+        try { return decodeURIComponent(part.slice(idx + 1).trim()) || null; } catch { return null; }
+      }
+    }
+    return null;
+  }
+
+  function setSessionCookie(req, res, token) {
+    res.cookie(SESSION_COOKIE, token, { httpOnly: true, sameSite: 'strict', secure: req.secure, path: '/' });
+  }
+
+  function clearSessionCookie(req, res) {
+    res.clearCookie(SESSION_COOKIE, { httpOnly: true, sameSite: 'strict', secure: req.secure, path: '/' });
+  }
+
+  /**
+   * True when a static URL points inside a runtime data folder (local-*).
+   * Decodes and normalizes like serve-static would, so "%6Cocal-events",
+   * "/./local-events", "//local-events" or "LOCAL-EVENTS" (case-insensitive
+   * filesystems) cannot bypass it. A bare "/local-x" (no trailing slash) is
+   * left alone: it is either a view route or a directory redirect.
+   */
+  function isProtectedStaticPath(urlPath) {
+    let decoded;
+    try { decoded = decodeURIComponent(urlPath); } catch { return true; }
+    const normalized = path.posix.normalize('/' + decoded.replace(/\\/g, '/'));
+    const segments   = normalized.split('/').filter(Boolean);
+    if (!segments.length || !segments[0].toLowerCase().startsWith('local-')) return false;
+    return segments.length > 1 || normalized.endsWith('/');
+  }
+
+  /**
+   * Resolves a ?file= parameter for the data APIs (partial-csv, csv-count, file-info).
+   * Only files inside the public/local-* folders are allowed — blocks configs/, sessions,
+   * absolute paths, "../" and symlinks/junctions that escape the folder.
+   * Outside paths always get 403 (checked lexically first → no existence oracle).
+   * @returns {Promise<{path: string}|{status: number, error: string}>}
+   */
+  async function resolveDataFile(fileParam) {
+    if (typeof fileParam !== 'string' || !fileParam) {
+      return { status: 400, error: 'Parâmetro "file" é obrigatório.' };
+    }
+    const denied = { status: 403, error: 'Acesso negado: somente arquivos em public/local-*.' };
+    if (fileParam.includes('\0')) return denied;
+
+    const publicDir = path.resolve(rootDir, 'public');
+    const candidate = path.resolve(rootDir, fileParam);
+    if (!isInsideDataDir(candidate, publicDir)) return denied;
+
+    let realFile;
+    try { realFile = await fs.promises.realpath(candidate); } catch {
+      return { status: 404, error: 'Arquivo não encontrado' };
+    }
+    let realPublic;
+    try { realPublic = await fs.promises.realpath(publicDir); } catch { realPublic = publicDir; }
+    if (!isInsideDataDir(realFile, realPublic)) return denied;
+
+    return { path: realFile };
+  }
+
+  function isInsideDataDir(absPath, publicDir) {
+    const rel = path.relative(publicDir, absPath);
+    if (!rel || rel.startsWith('..') || path.isAbsolute(rel)) return false;
+    const parts = rel.split(path.sep);
+    return parts.length > 1 && parts[0].toLowerCase().startsWith('local-');
+  }
+
+  /** True when absPath is a .py file inside scriptsDir (any depth). */
+  function isInsideScriptsDir(absPath, scriptsDir) {
+    const rel = path.relative(scriptsDir, absPath);
+    if (!rel || rel.startsWith('..') || path.isAbsolute(rel)) return false;
+    return path.extname(absPath).toLowerCase() === '.py';
+  }
+
+  /**
+   * True when some chart card in cards-list.json declares exactly this script
+   * (in any dataset) together with this source file. The frontend sends the
+   * card's own values, so legitimate charts always match; anything else is a
+   * request to run something no editor configured.
+   */
+  async function isDeclaredChartScript(scriptAbs, sourceParam) {
+    let cards;
+    try {
+      cards = JSON.parse(await fs.promises.readFile(CARDS_PATH, 'utf8'));
+    } catch (err) {
+      if (err.code === 'ENOENT') return false;
+      throw err;
+    }
+    if (!Array.isArray(cards)) return false;
+
+    const sourceAbs = sourceParam ? path.resolve(rootDir, sourceParam) : null;
+    return cards.some(card => {
+      if (!card || card.cardType !== 'chart') return false;
+      const datasets = card.chart && card.chart.data && card.chart.data.datasets;
+      if (!Array.isArray(datasets)) return false;
+      const declaresScript = datasets.some(d =>
+        d && typeof d.script === 'string' && d.script && path.resolve(rootDir, d.script) === scriptAbs);
+      if (!declaresScript) return false;
+      const declaredSource = typeof card.sourceItems === 'string' && card.sourceItems ? card.sourceItems : null;
+      if (!declaredSource || !sourceAbs) return !declaredSource && !sourceAbs;
+      return path.resolve(rootDir, declaredSource) === sourceAbs;
+    });
+  }
+
+  /**
+   * Validates a POST /api/chart-data request before anything is spawned:
+   *   1. scriptPath must be a .py inside scripts/ (lexical check → 403, no oracle)
+   *   2. the script + sourceFile pair must be declared by a chart card (403)
+   *   3. script realpath must still be inside scripts/ (symlinks/junctions → 403)
+   *   4. sourceFile, when present, goes through resolveDataFile (public/local-* only)
+   * @returns {Promise<{args: string[]}|{status: number, error: string}>}
+   */
+  async function resolveChartScript(scriptParam, sourceParam) {
+    if (typeof scriptParam !== 'string' || !scriptParam) {
+      return { status: 400, error: 'Parâmetro "scriptPath" é obrigatório.' };
+    }
+    const hasSource = sourceParam !== undefined && sourceParam !== null && sourceParam !== '';
+    if (hasSource && typeof sourceParam !== 'string') {
+      return { status: 400, error: 'Parâmetro "sourceFile" inválido.' };
+    }
+
+    const denied = { status: 403, error: 'Acesso negado: somente scripts .py em scripts/.' };
+    if (scriptParam.includes('\0')) return denied;
+
+    const scriptsDir = path.resolve(rootDir, 'scripts');
+    const candidate  = path.resolve(rootDir, scriptParam);
+    if (!isInsideScriptsDir(candidate, scriptsDir)) return denied;
+
+    if (!(await isDeclaredChartScript(candidate, hasSource ? sourceParam : null))) {
+      return { status: 403, error: 'Acesso negado: script não declarado em nenhum card de gráfico.' };
+    }
+
+    let realScript;
+    try { realScript = await fs.promises.realpath(candidate); } catch {
+      return { status: 404, error: 'Script não encontrado' };
+    }
+    let realScriptsDir;
+    try { realScriptsDir = await fs.promises.realpath(scriptsDir); } catch { realScriptsDir = scriptsDir; }
+    if (!isInsideScriptsDir(realScript, realScriptsDir)) return denied;
+
+    const args = [realScript];
+    if (hasSource) {
+      const source = await resolveDataFile(sourceParam);
+      if (source.status) return source;
+      args.push(source.path);
+    }
+    return { args };
+  }
+
   function requireAuth(req, res, next) {
     const token   = getToken(req);
     const session = validateSession(token);
@@ -96,12 +267,25 @@ function createApp(config = {}) {
   const WINDOW_MS     = 15 * 60 * 1000;
 
   // Rate limiting das rotas de gravação (POST/DELETE de configuração + backup).
-  // Só nas rotas de escrita: leituras de cards, chart-data e WebSocket ficam livres
+  // Só nas rotas de escrita: leituras de cards e WebSocket ficam livres
   // para não afetar painéis abertos o dia todo. Limite folgado porque, conforme a
   // rede (ex.: Docker), vários usuários podem chegar com o mesmo IP.
   const writeLimiter = rateLimit({
     windowMs: writeRateLimit.windowMs,
     limit:    writeRateLimit.limit,
+    standardHeaders: 'draft-7',
+    legacyHeaders:   false,
+    message: { error: 'Muitas requisições. Aguarde um instante e tente novamente.' },
+  });
+
+  // Rate limiting das rotas que leem arquivos de dados dos cards (partial-csv,
+  // csv-count, file-info) e de chart-data. Separado e bem mais folgado que o de
+  // gravação: o painel chama essas rotas a cada carga e a cada atualização via
+  // WebSocket, mas partial-csv/csv-count leem o CSV inteiro a cada chamada e
+  // chart-data cria um processo Python por chamada.
+  const readLimiter = rateLimit({
+    windowMs: readRateLimit.windowMs,
+    limit:    readRateLimit.limit,
     standardHeaders: 'draft-7',
     legacyHeaders:   false,
     message: { error: 'Muitas requisições. Aguarde um instante e tente novamente.' },
@@ -151,6 +335,7 @@ function createApp(config = {}) {
 
     const token = createSession(user.username, user.role);
     persistSessions();
+    setSessionCookie(req, res, token);
     res.json({ token, role: user.role, name: user.name });
   });
 
@@ -158,6 +343,7 @@ function createApp(config = {}) {
   app.post('/api/auth/logout', (req, res) => {
     const token = getToken(req);
     if (token) { destroySession(token); persistSessions(); }
+    clearSessionCookie(req, res);
     res.sendStatus(200);
   });
 
@@ -168,7 +354,12 @@ function createApp(config = {}) {
     }
     const token   = getToken(req);
     const session = validateSession(token);
-    if (!session) return res.status(401).json({ error: 'Não autorizado.' });
+    if (!session) {
+      clearSessionCookie(req, res);
+      return res.status(401).json({ error: 'Não autorizado.' });
+    }
+    // Refreshes the cookie on every SPA load (covers sessions created before the cookie existed)
+    setSessionCookie(req, res, token);
     const users = readUsers();
     const user  = users.find(u => u.username === session.username);
     res.json({ username: session.username, role: session.role, name: user ? user.name : session.username });
@@ -447,16 +638,10 @@ function createApp(config = {}) {
   });
 
   // ------------------------------------------------------------------ GET /api/csv-count
-  app.get('/api/csv-count', async (req, res) => {
-    const filePath = req.query.file;
-
-    if (!filePath) {
-      return res.status(400).json({ error: 'Parâmetro "file" é obrigatório.' });
-    }
-
-    if (!fs.existsSync(filePath)) {
-      return res.status(404).json({ error: 'Arquivo não encontrado' });
-    }
+  app.get('/api/csv-count', readLimiter, async (req, res) => {
+    const resolved = await resolveDataFile(req.query.file);
+    if (resolved.status) return res.status(resolved.status).json({ error: resolved.error });
+    const filePath = resolved.path;
 
     try {
       let count = 0;
@@ -479,12 +664,10 @@ function createApp(config = {}) {
   // Metadados do arquivo de origem (data de modificação) — usado no rodapé dos cards.
   // fs.stat entrega o mtime tanto em Windows quanto em Linux; a data é normalizada
   // em ISO 8601 (UTC) e formatada no fuso local pelo front-end.
-  app.get('/api/file-info', async (req, res) => {
-    const filePath = req.query.file;
-
-    if (!filePath) {
-      return res.status(400).json({ error: 'Parâmetro "file" é obrigatório.' });
-    }
+  app.get('/api/file-info', readLimiter, async (req, res) => {
+    const resolved = await resolveDataFile(req.query.file);
+    if (resolved.status) return res.status(resolved.status).json({ error: resolved.error });
+    const filePath = resolved.path;
 
     let stats;
     try {
@@ -504,17 +687,11 @@ function createApp(config = {}) {
   });
 
   // ------------------------------------------------------------------ GET /api/partial-csv
-  app.get('/api/partial-csv', async (req, res) => {
-    const filePath = req.query.file;
+  app.get('/api/partial-csv', readLimiter, async (req, res) => {
     const limit    = parseInt(req.query.limit) || 10;
-
-    if (!filePath) {
-      return res.status(400).json({ error: 'Parâmetro "file" é obrigatório.' });
-    }
-
-    if (!fs.existsSync(filePath)) {
-      return res.status(404).json({ error: 'Arquivo não encontrado' });
-    }
+    const resolved = await resolveDataFile(req.query.file);
+    if (resolved.status) return res.status(resolved.status).json({ error: resolved.error });
+    const filePath = resolved.path;
 
     try {
       const lines = [];
@@ -541,33 +718,66 @@ function createApp(config = {}) {
   });
 
   // ------------------------------------------------------------------ POST /api/chart-data
-  app.post('/api/chart-data', (req, res) => {
-    const { scriptPath, sourceFile } = req.body;
+  // Executa somente scripts .py de scripts/ declarados por um card de gráfico
+  // (ver resolveChartScript). O stderr nunca volta ao cliente: um traceback do
+  // Python mostra linhas do arquivo executado — fica só no log do servidor.
+  const STDERR_LOG_LIMIT = 4000;
 
-    if (!scriptPath) {
-      return res.status(400).json({ error: 'Parâmetro "scriptPath" é obrigatório.' });
+  app.post('/api/chart-data', readLimiter, async (req, res) => {
+    const { scriptPath, sourceFile } = req.body || {};
+
+    let resolved;
+    try {
+      resolved = await resolveChartScript(scriptPath, sourceFile);
+    } catch (err) {
+      console.error('[chart-data] erro ao validar o script:', err.message);
+      return res.status(500).json({ error: 'Erro ao ler os cards' });
     }
+    if (resolved.status) return res.status(resolved.status).json({ error: resolved.error });
 
-    const resolvedScript = path.resolve(rootDir, scriptPath);
-    const resolvedSource = path.resolve(rootDir, sourceFile || '');
-
-    const python = spawnFn(PYTHON_CMD, [resolvedScript, resolvedSource]);
-
+    const scriptLabel = path.relative(rootDir, resolved.args[0]);
+    let finished = false;
     let stdout = '';
     let stderr = '';
 
+    const finish = (status, body) => {
+      if (finished) return;
+      finished = true;
+      clearTimeout(timer);
+      res.status(status).json(body);
+    };
+
+    let python;
+    try {
+      python = spawnFn(PYTHON_CMD, resolved.args);
+    } catch (err) {
+      console.error(`[chart-data] falha ao iniciar ${scriptLabel}:`, err.message);
+      return res.status(500).json({ error: 'Não foi possível executar o script.' });
+    }
+
+    const timer = setTimeout(() => {
+      console.error(`[chart-data] ${scriptLabel} excedeu ${chartScriptTimeoutMs} ms — processo encerrado`);
+      try { python.kill(); } catch { /* processo já encerrado */ }
+      finish(504, { error: 'Tempo limite excedido ao executar o script.' });
+    }, chartScriptTimeoutMs);
+
     python.stdout.on('data', d => { stdout += d.toString(); });
-    python.stderr.on('data', d => { stderr += d.toString(); });
+    python.stderr.on('data', d => {
+      if (stderr.length < STDERR_LOG_LIMIT) stderr += d.toString();
+    });
+
+    // Sem este listener, um PYTHON_CMD inexistente (ENOENT) derrubaria o servidor.
+    python.on('error', (err) => {
+      console.error(`[chart-data] falha ao executar ${scriptLabel}:`, err.message);
+      finish(500, { error: 'Não foi possível executar o script.' });
+    });
 
     python.on('close', (code) => {
-      if (code === 0) {
-        res.json({ output: stdout.trim() });
-      } else {
-        res.status(500).json({
-          error: `Erro ao executar o script (code ${code})`,
-          stderr: stderr.trim(),
-        });
-      }
+      if (finished) return; // já respondido (tempo limite ou erro ao iniciar)
+      if (code === 0) return finish(200, { output: stdout.trim() });
+      console.error(`[chart-data] ${scriptLabel} terminou com código ${code}:`,
+        stderr.trim().slice(0, STDERR_LOG_LIMIT));
+      finish(500, { error: `Erro ao executar o script (code ${code})` });
     });
   });
 

@@ -25,7 +25,7 @@ Local-first architecture: data produced externally by Python scripts (uptime, CV
 │   ├── api.meta.test.js               # GET /api/views, /api/cards, /version
 │   ├── api.csv.test.js                # GET /api/partial-csv, GET /api/csv-count
 │   ├── api.fileinfo.test.js           # GET /api/file-info
-│   ├── api.chartdata.test.js          # POST /api/chart-data
+│   ├── api.chartdata.test.js          # POST /api/chart-data: only scripts declared by chart cards, stderr not returned, timeout, ENOENT (real fs in tmp dir)
 │   ├── api.views.manage.test.js       # POST /api/views, DELETE /api/views
 │   ├── api.logs.test.js               # GET /api/logs, GET /api/logs/:filename
 │   ├── api.uptime.test.js             # GET/POST /api/uptime-config
@@ -33,7 +33,8 @@ Local-first architecture: data produced externally by Python scripts (uptime, CV
 │   ├── api.cards.manage.test.js       # POST /api/cards, DELETE /api/cards/:cardId
 │   ├── api.health.test.js            # GET /api/health
 │   ├── api.backup.test.js            # GET /api/backup
-│   ├── api.ratelimit.test.js         # writeLimiter: write routes → 429, reads/chart-data unlimited
+│   ├── api.ratelimit.test.js         # writeLimiter: write routes → 429, read routes unlimited
+│   ├── api.datafiles.test.js         # ?file= restricted to public/local-*, static local-* behind login, session cookie, readLimiter (real fs in tmp dir)
 │   └── frontend/
 │       ├── load-script.js             # Helper: loads vanilla JS into Jest global scope
 │       ├── helpers.test.js            # csvToJson, parseCSVLine
@@ -139,7 +140,11 @@ Local-first architecture: data produced externally by Python scripts (uptime, CV
 - **`server.js` is bootstrap only** — reads configs, calls `createApp()`, starts `app.listen` + WebSocket. Zero route logic.
 - **`src/app.js` is the app factory** — exports `createApp({ rootDir, PYTHON_CMD, spawn })`. Does not call `app.listen`. Tests import the app without a real server.
 - WebSocket runs on a **separate port** (default `8123`) from HTTP (default `3123`).
-- **Rate limiting (`express-rate-limit`)** — `writeLimiter` is applied **per route** (before `requireRole('editor')`) on every write route + `/api/backup`; default 120 req/min per IP, configurable via `createApp({ writeRateLimit: { windowMs, limit } })`. Never apply it globally to `/api` or to read routes / `/api/chart-data`: dashboards poll those all day and, behind Docker/proxies, many users can share one IP. New write routes must include `writeLimiter`. Login keeps its own limiter (5 failures / 15 min).
+- **Rate limiting (`express-rate-limit`)** — `writeLimiter` is applied **per route** (before `requireRole('editor')`) on every write route + `/api/backup`; default 120 req/min per IP, configurable via `createApp({ writeRateLimit: { windowMs, limit } })`. Never apply it globally to `/api` or to read routes / `/api/chart-data`: dashboards poll those all day and, behind Docker/proxies, many users can share one IP. New write routes must include `writeLimiter`. Login keeps its own limiter (5 failures / 15 min). Data-file routes (`partial-csv`, `csv-count`, `file-info`) and `/api/chart-data` use a separate, generous `readLimiter` (600 req/min, `createApp({ readRateLimit })`).
+- **Data file access** — any `?file=` parameter must go through `resolveDataFile()`: resolves against `rootDir` (not the process CWD), allows **only files inside `public/local-*`**, checks lexically first (403, no existence oracle) and again after `realpath` (blocks symlinks/junctions escaping the folder). Never pass `req.query.file` straight to `fs`.
+- **Chart scripts (`/api/chart-data`)** — `resolveChartScript()` only runs a `.py` inside `scripts/` (lexical + `realpath` check) **and** only the exact `script` + `sourceItems` pair declared by a `chart` card in `cards-list.json` (re-read per request, so card edits apply immediately). `sourceFile` goes through `resolveDataFile()`. Python `stderr` is **never** sent to the client (tracebacks echo file lines) — it is logged server-side, truncated. The child process has an `error` listener (missing `PYTHON_CMD` must not crash the server) and a timeout (`createApp({ chartScriptTimeoutMs })`, default 30 s → kill + 504).
+- **Static data behind login** — when auth is enabled, URLs under `local-*` (`public/local-*/` and the `/local-pages` mount) require a session: Bearer header (fetch) **or** the `painel_session` cookie (iframes, links). `isProtectedStaticPath()` decodes/normalizes like serve-static (encoded chars, case, `//`, `./`, `..`, `\`). Interface assets (`js/`, `css/`, `login.html`) stay public.
+- **Session cookie** — `painel_session` (HttpOnly, SameSite=Strict, Secure when `req.secure`) mirrors the Bearer token: set on login, refreshed on `GET /api/auth/me`, cleared on logout / invalid `/me`. It is accepted **only** by the static data guard — `/api/*` stays Bearer-only (no CSRF surface).
 - Layout configs are flat JSON arrays (`layout.config-{view}.json`). Frontend is authoritative; saving always POSTs the full layout.
 
 ### WebSocket
@@ -194,15 +199,15 @@ Card definitions live in `cards/cards-list.json`, schema in `card.schema.json`.
 | `DELETE` | `/api/cards/:cardId` | Remove a card by ID from the registry |
 | `GET` | `/api/layout/:viewName` | View layout (empty array if not found) |
 | `POST` | `/api/layout/:viewName` | Save full view layout |
-| `GET` | `/api/partial-csv?file=&limit=N` | Last N lines of CSV (preserves header) |
-| `GET` | `/api/csv-count?file=` | Total data row count in a CSV (excl. header and blank lines) |
-| `GET` | `/api/file-info?file=` | File metadata — `{ mtime (ISO 8601 UTC), size }` via `fs.promises.stat` (works on Windows and Linux) |
+| `GET` | `/api/partial-csv?file=&limit=N` | Last N lines of CSV (preserves header). `file` must be inside `public/local-*` (403 otherwise) |
+| `GET` | `/api/csv-count?file=` | Total data row count in a CSV (excl. header and blank lines). `file` must be inside `public/local-*` |
+| `GET` | `/api/file-info?file=` | File metadata — `{ mtime (ISO 8601 UTC), size }` via `fs.promises.stat` (works on Windows and Linux). `file` must be inside `public/local-*` |
 | `GET` | `/api/logs` | List `.log` files in `scripts/logs/` |
 | `GET` | `/api/logs/:filename` | Log file content (validates path traversal) |
 | `GET` | `/api/uptime-config?file=` | Uptime config JSON (validates path traversal) |
 | `POST` | `/api/uptime-config?file=` | Save uptime config with **smart merge** (preserves `status`, `lastStatusOnline`, `lastStatusOffline` from existing services matched by URL) |
 | `POST` | `/api/cve-assessment?file=` | Update CVE assessment field (matches by reportItem + CVE ID) |
-| `POST` | `/api/chart-data` | Spawn Python script, return JSON stdout |
+| `POST` | `/api/chart-data` | Spawn Python script, return JSON stdout. Only `.py` in `scripts/` declared by a `chart` card with the same `sourceItems` (403 otherwise); 504 on timeout |
 | `GET` | `/api/health` | Server status, uptime, WebSocket info, active watchers |
 | `GET` | `/api/backup` | Generate and download zip with configs, cards-list, local-* data |
 | `GET` | `/version` | Returns `version.json` |
