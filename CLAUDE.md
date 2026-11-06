@@ -33,6 +33,7 @@ Local-first architecture: data produced externally by Python scripts (uptime, CV
 │   ├── api.cards.manage.test.js       # POST /api/cards, DELETE /api/cards/:cardId
 │   ├── api.health.test.js            # GET /api/health
 │   ├── api.backup.test.js            # GET /api/backup
+│   ├── api.ratelimit.test.js         # writeLimiter: write routes → 429, reads/chart-data unlimited
 │   └── frontend/
 │       ├── load-script.js             # Helper: loads vanilla JS into Jest global scope
 │       ├── helpers.test.js            # csvToJson, parseCSVLine
@@ -138,6 +139,7 @@ Local-first architecture: data produced externally by Python scripts (uptime, CV
 - **`server.js` is bootstrap only** — reads configs, calls `createApp()`, starts `app.listen` + WebSocket. Zero route logic.
 - **`src/app.js` is the app factory** — exports `createApp({ rootDir, PYTHON_CMD, spawn })`. Does not call `app.listen`. Tests import the app without a real server.
 - WebSocket runs on a **separate port** (default `8123`) from HTTP (default `3123`).
+- **Rate limiting (`express-rate-limit`)** — `writeLimiter` is applied **per route** (before `requireRole('editor')`) on every write route + `/api/backup`; default 120 req/min per IP, configurable via `createApp({ writeRateLimit: { windowMs, limit } })`. Never apply it globally to `/api` or to read routes / `/api/chart-data`: dashboards poll those all day and, behind Docker/proxies, many users can share one IP. New write routes must include `writeLimiter`. Login keeps its own limiter (5 failures / 15 min).
 - Layout configs are flat JSON arrays (`layout.config-{view}.json`). Frontend is authoritative; saving always POSTs the full layout.
 
 ### WebSocket

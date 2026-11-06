@@ -4,6 +4,7 @@ const express  = require('express');
 const fs       = require('fs');
 const path     = require('path');
 const readline = require('readline');
+const rateLimit = require('express-rate-limit');
 const { verifyPassword, createSession, validateSession, destroySession, loadSessions, exportSessions } = require('./auth');
 
 /**
@@ -14,12 +15,14 @@ const { verifyPassword, createSession, validateSession, destroySession, loadSess
  * @param {string}   config.rootDir    - __dirname do projeto raiz
  * @param {string}   config.PYTHON_CMD - executável python (ex: "python3")
  * @param {Function} config.spawn      - child_process.spawn (injetável para testes)
+ * @param {object}   [config.writeRateLimit] - { windowMs, limit } das rotas de gravação (padrão: 120 req/min por IP)
  */
 function createApp(config = {}) {
   const rootDir    = config.rootDir    || path.resolve(__dirname, '..');
   const PYTHON_CMD = config.PYTHON_CMD || 'python';
   // Injeção de dependência: permite substituir em testes sem jest.mock()
   const spawnFn    = config.spawn      || require('child_process').spawn;
+  const writeRateLimit = Object.assign({ windowMs: 60 * 1000, limit: 120 }, config.writeRateLimit);
 
   const CONFIGS_PATH   = path.join(rootDir, 'configs');
   const VIEWS_PATH     = path.join(CONFIGS_PATH, 'views.json');
@@ -91,6 +94,18 @@ function createApp(config = {}) {
   const loginAttempts = new Map();
   const MAX_ATTEMPTS  = 5;
   const WINDOW_MS     = 15 * 60 * 1000;
+
+  // Rate limiting das rotas de gravação (POST/DELETE de configuração + backup).
+  // Só nas rotas de escrita: leituras de cards, chart-data e WebSocket ficam livres
+  // para não afetar painéis abertos o dia todo. Limite folgado porque, conforme a
+  // rede (ex.: Docker), vários usuários podem chegar com o mesmo IP.
+  const writeLimiter = rateLimit({
+    windowMs: writeRateLimit.windowMs,
+    limit:    writeRateLimit.limit,
+    standardHeaders: 'draft-7',
+    legacyHeaders:   false,
+    message: { error: 'Muitas requisições. Aguarde um instante e tente novamente.' },
+  });
 
   // ------------------------------------------------------------------ GET /ping (unprotected)
   app.get('/ping', (req, res) => {
@@ -209,7 +224,7 @@ function createApp(config = {}) {
   });
 
   // ------------------------------------------------------------------ POST /api/layout/:viewName
-  app.post('/api/layout/:viewName', requireRole('editor'), (req, res) => {
+  app.post('/api/layout/:viewName', writeLimiter, requireRole('editor'), (req, res) => {
     const viewPath = layoutPath(req.params.viewName);
 
     fs.writeFile(viewPath, JSON.stringify(req.body, null, 2), 'utf8', (err) => {
@@ -236,7 +251,7 @@ function createApp(config = {}) {
   });
 
   // ------------------------------------------------------------------ POST /api/views
-  app.post('/api/views', requireRole('editor'), (req, res) => {
+  app.post('/api/views', writeLimiter, requireRole('editor'), (req, res) => {
     const { title } = req.body;
 
     if (typeof title !== 'string' || !title.trim()) {
@@ -287,7 +302,7 @@ function createApp(config = {}) {
   });
 
   // ------------------------------------------------------------------ DELETE /api/views/:viewName
-  app.delete('/api/views/:viewName', requireRole('editor'), (req, res) => {
+  app.delete('/api/views/:viewName', writeLimiter, requireRole('editor'), (req, res) => {
     const { viewName } = req.params;
 
     fs.readFile(VIEWS_PATH, 'utf8', (err, data) => {
@@ -339,7 +354,7 @@ function createApp(config = {}) {
   });
 
   // ------------------------------------------------------------------ POST /api/cards
-  app.post('/api/cards', requireRole('editor'), (req, res) => {
+  app.post('/api/cards', writeLimiter, requireRole('editor'), (req, res) => {
     const cards = req.body;
 
     if (!Array.isArray(cards)) {
@@ -370,7 +385,7 @@ function createApp(config = {}) {
   });
 
   // ------------------------------------------------------------------ DELETE /api/cards/:cardId
-  app.delete('/api/cards/:cardId', requireRole('editor'), (req, res) => {
+  app.delete('/api/cards/:cardId', writeLimiter, requireRole('editor'), (req, res) => {
     const cardId = req.params.cardId;
 
     fs.readFile(CARDS_PATH, 'utf8', (err, data) => {
@@ -627,7 +642,7 @@ function createApp(config = {}) {
   });
 
   // ------------------------------------------------------------------ POST /api/uptime-config
-  app.post('/api/uptime-config', requireRole('editor'), (req, res) => {
+  app.post('/api/uptime-config', writeLimiter, requireRole('editor'), (req, res) => {
     const filePath = req.query.file;
     if (!filePath) {
       return res.status(400).json({ error: 'Parâmetro "file" é obrigatório.' });
@@ -685,7 +700,7 @@ function createApp(config = {}) {
   });
 
   // ------------------------------------------------------------------ POST /api/cve-assessment
-  app.post('/api/cve-assessment', requireRole('editor'), (req, res) => {
+  app.post('/api/cve-assessment', writeLimiter, requireRole('editor'), (req, res) => {
     const filePath = req.query.file;
     if (!filePath) {
       return res.status(400).json({ error: 'Parâmetro "file" é obrigatório.' });
@@ -742,7 +757,7 @@ function createApp(config = {}) {
   });
 
   // ------------------------------------------------------------------ GET /api/backup
-  app.get('/api/backup', requireRole('editor'), (req, res) => {
+  app.get('/api/backup', writeLimiter, requireRole('editor'), (req, res) => {
     const archiver = require('archiver');
 
     const BACKUP_DIRS = [
